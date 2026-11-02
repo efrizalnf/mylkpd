@@ -47,6 +47,14 @@ class mod_mylkpd_mod_form extends moodleform_mod {
         $mform->addElement('advcheckbox', 'teamsubmission', get_string('teamsubmission', 'mod_mylkpd'));
         $mform->addHelpButton('teamsubmission', 'teamsubmission', 'mod_mylkpd');
 
+        $mform->addElement('select', 'allowresubmit', get_string('allowresubmit', 'mod_mylkpd'), [
+            1 => get_string('allowresubmituntilgraded', 'mod_mylkpd'),
+            2 => get_string('allowresubmitalways', 'mod_mylkpd'),
+            0 => get_string('allowresubmitno', 'mod_mylkpd'),
+        ]);
+        $mform->setDefault('allowresubmit', 1);
+        $mform->addHelpButton('allowresubmit', 'allowresubmit', 'mod_mylkpd');
+
         // Changing these after students started would make existing answers unusable.
         if ($this->has_submissions()) {
             $mform->hardFreeze(['workmode', 'teamsubmission']);

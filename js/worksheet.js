@@ -71,6 +71,31 @@ var MyLKPD = (function() {
         });
     }
 
+    var katexPromise = null;
+
+    function loadKatex(base) {
+        if (katexPromise) {
+            return katexPromise;
+        }
+        if (!document.querySelector('link[data-mylkpd-katex]')) {
+            var css = document.createElement('link');
+            css.rel = 'stylesheet';
+            css.href = base + '/katex.min.css';
+            css.setAttribute('data-mylkpd-katex', '1');
+            document.head.appendChild(css);
+        }
+        if (window.katex) {
+            katexPromise = Promise.resolve(window.katex);
+        } else if (hasAmd()) {
+            katexPromise = amd({'mylkpd-katex': base + '/katex.min'}, 'mylkpd-katex');
+        } else {
+            katexPromise = loadScript(base + '/katex.min.js').then(function() {
+                return window.katex;
+            });
+        }
+        return katexPromise;
+    }
+
     // ---------------------------------------------------------------- Helpers.
 
     function clamp(v) {
@@ -142,16 +167,24 @@ var MyLKPD = (function() {
             return;
         }
         var readonly = !!cfg.readonly;
-        var editMode = cfg.workmode === 'edit';
+        var canType = !!cfg.canType;
+        var katex = null;
+        var prevTool = null;
+        var lastTarget = null;
+        var savedRange = null;
+        var hintEl = document.querySelector('[data-mylkpd-hint]');
+        var hintText = hintEl ? hintEl.textContent : '';
         var members = cfg.members || {};
         var items = Array.isArray(cfg.items) ? cfg.items.filter(function(a) {
             return a && typeof a === 'object' && a.page && a.id;
         }) : [];
         var pages = {};
         var elems = new Map();
+        var labels = new Map();
         var owners = new WeakMap();
+        var showNames = !!cfg.showNames;
         var undoStack = [];
-        var tool = 'text';
+        var tool = cfg.defaultTool || 'text';
         var color = (cfg.colors && cfg.colors[0]) || '#1a47b8';
         var width = 4;
 
@@ -192,6 +225,78 @@ var MyLKPD = (function() {
             }
         }
 
+        // ------------------------------------------------ Equations.
+
+        function renderTex(el, tex) {
+            if (katex) {
+                try {
+                    katex.render(tex, el, {throwOnError: false, trust: false, strict: 'ignore'});
+                    return;
+                } catch (err) {
+                    // Fall through to plain text.
+                }
+            }
+            el.textContent = tex;
+        }
+
+        function mathChip(tex) {
+            var chip = document.createElement('span');
+            chip.className = 'mylkpd-math';
+            chip.contentEditable = 'false';
+            chip.setAttribute('data-tex', tex);
+            renderTex(chip, tex);
+            return chip;
+        }
+
+        /**
+         * Paragraph HTML as stored: equation chips become plain \(TeX\) text, which HTMLPurifier keeps.
+         *
+         * @param {HTMLElement} p
+         * @return {String}
+         */
+        function serializeBlock(p) {
+            var clone = p.cloneNode(true);
+            Array.prototype.forEach.call(clone.querySelectorAll('.mylkpd-math'), function(c) {
+                c.parentNode.replaceChild(document.createTextNode('\\(' + c.getAttribute('data-tex') + '\\)'), c);
+            });
+            return clone.innerHTML;
+        }
+
+        /**
+         * Turns \(TeX\) text inside a paragraph into rendered equation chips; makes links open in a new tab.
+         *
+         * @param {HTMLElement} p
+         */
+        function hydrateBlock(p) {
+            var walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT, null);
+            var nodes = [];
+            while (walker.nextNode()) {
+                if (walker.currentNode.nodeValue.indexOf('\\(') >= 0) {
+                    nodes.push(walker.currentNode);
+                }
+            }
+            nodes.forEach(function(node) {
+                var text = node.nodeValue;
+                var re = /\\\((.+?)\\\)/g;
+                var frag = document.createDocumentFragment();
+                var last = 0;
+                var m;
+                while ((m = re.exec(text)) !== null) {
+                    frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+                    frag.appendChild(mathChip(m[1]));
+                    last = re.lastIndex;
+                }
+                if (last > 0) {
+                    frag.appendChild(document.createTextNode(text.slice(last)));
+                    node.parentNode.replaceChild(frag, node);
+                }
+            });
+            Array.prototype.forEach.call(p.querySelectorAll('a[href]'), function(a) {
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+            });
+        }
+
         // ------------------------------------------------ Saving and syncing.
 
         function scheduleSave(delay) {
@@ -225,9 +330,10 @@ var MyLKPD = (function() {
             });
             Object.keys(touched).forEach(function(id) {
                 var el = blockEls[id];
-                if (el && el.innerHTML !== shadowBlocks[id]) {
-                    ops.push({op: 'put', kind: 'block', id: id, html: el.innerHTML});
-                    shadowBlocks[id] = el.innerHTML;
+                var html = el ? serializeBlock(el) : null;
+                if (el && html !== shadowBlocks[id]) {
+                    ops.push({op: 'put', kind: 'block', id: id, html: html});
+                    shadowBlocks[id] = html;
                 }
                 delete touched[id];
             });
@@ -349,6 +455,7 @@ var MyLKPD = (function() {
                 shadowItems[id] = canon(item);
                 if (local && canon(local) === shadowItems[id]) {
                     local.by = item.by;
+                    updateLabel(local);
                     return;
                 }
                 if (local) {
@@ -364,13 +471,14 @@ var MyLKPD = (function() {
                 var b = res.blocks[id];
                 var el = blockEls[id];
                 if (!el || el === document.activeElement || touched[id] || inOutbox('block', id) ||
-                        el.innerHTML !== shadowBlocks[id]) {
+                        serializeBlock(el) !== shadowBlocks[id]) {
                     return;
                 }
-                if (b.html !== undefined && b.html !== el.innerHTML) {
+                if (b.html !== undefined && b.html !== serializeBlock(el)) {
                     el.innerHTML = b.html;
+                    hydrateBlock(el);
                 }
-                shadowBlocks[id] = el.innerHTML;
+                shadowBlocks[id] = serializeBlock(el);
                 markEdited(el, b.by);
             });
             if (res.presence) {
@@ -430,7 +538,11 @@ var MyLKPD = (function() {
         function updateUndo() {
             var b = document.querySelector('[data-mylkpd-action="undo"]');
             if (b) {
-                b.disabled = undoStack.length === 0;
+                b.disabled = tool !== 'type' && undoStack.length === 0;
+            }
+            var r = document.querySelector('[data-mylkpd-action="redo"]');
+            if (r) {
+                r.disabled = tool !== 'type';
             }
         }
 
@@ -474,6 +586,74 @@ var MyLKPD = (function() {
             updateUndo();
         }
 
+        // ------------------------------------------------ Author name labels (group work).
+
+        function authorName(uid) {
+            return members[uid] ? members[uid].name : '';
+        }
+
+        function labelAnchor(item) {
+            if (item.type === 'line') {
+                return {x: Math.min(item.x1, item.x2), y: Math.min(item.y1, item.y2)};
+            }
+            if (item.type === 'pen') {
+                var minx = 100;
+                var miny = 100;
+                item.points.forEach(function(q) {
+                    minx = Math.min(minx, q[0]);
+                    miny = Math.min(miny, q[1]);
+                });
+                return {x: minx, y: miny};
+            }
+            return {x: item.x, y: item.y};
+        }
+
+        function updateLabel(item) {
+            var label = labels.get(item);
+            var name = showNames ? authorName(item.by) : '';
+            if (!name) {
+                if (label && label.parentNode) {
+                    label.parentNode.removeChild(label);
+                }
+                labels.delete(item);
+                return;
+            }
+            var page = pages[item.page];
+            if (!page) {
+                return;
+            }
+            if (!label) {
+                label = document.createElement('div');
+                label.setAttribute('aria-hidden', 'true');
+                labels.set(item, label);
+            }
+            label.className = 'mylkpd-namelabel mylkpd-namelabel-' + item.type;
+            label.textContent = name;
+            label.style.background = members[item.by].color;
+            var a = labelAnchor(item);
+            label.style.left = a.x + '%';
+            label.style.top = a.y + '%';
+            if (label.parentNode !== page.html) {
+                page.html.appendChild(label);
+            }
+        }
+
+        function removeLabel(item) {
+            var label = labels.get(item);
+            if (label && label.parentNode) {
+                label.parentNode.removeChild(label);
+            }
+            labels.delete(item);
+        }
+
+        function claim(item) {
+            // The current user is now the last one who changed this item.
+            if (item.by !== cfg.userid) {
+                item.by = cfg.userid;
+                updateLabel(item);
+            }
+        }
+
         // ------------------------------------------------ Drawing items.
 
         function strokeStyle(w) {
@@ -506,7 +686,11 @@ var MyLKPD = (function() {
             if (!el) {
                 return;
             }
-            if (item.type === 'text' || item.type === 'check' || item.type === 'cross') {
+            if (labels.has(item)) {
+                updateLabel(item);
+            }
+            if (item.type === 'text' || item.type === 'check' || item.type === 'cross' ||
+                    item.type === 'math' || item.type === 'link') {
                 el.style.left = item.x + '%';
                 el.style.top = item.y + '%';
                 return;
@@ -531,6 +715,7 @@ var MyLKPD = (function() {
             ta.style.color = item.color;
             ta.style.borderColor = item.color;
             ta.setAttribute('aria-label', cfg.strings.answer);
+            ta.dir = 'auto'; // Arabic answers are written right to left.
             if (item.by && memberName(item.by)) {
                 el.title = cfg.strings.editedby.replace('{name}', memberName(item.by));
             }
@@ -547,6 +732,7 @@ var MyLKPD = (function() {
                     }
                     item.text = ta.value;
                     grow(ta);
+                    claim(item);
                     changed();
                 });
                 ta.addEventListener('blur', function() {
@@ -573,6 +759,30 @@ var MyLKPD = (function() {
             var el;
             if (item.type === 'text') {
                 el = createText(item);
+            } else if (item.type === 'math') {
+                el = document.createElement('div');
+                el.className = 'mylkpd-item mylkpd-mathitem';
+                el.style.color = item.color;
+                renderTex(el, item.tex);
+                if (!readonly) {
+                    el.addEventListener('dblclick', function() {
+                        editMathItem(item);
+                    });
+                }
+            } else if (item.type === 'link') {
+                el = document.createElement('a');
+                el.className = 'mylkpd-item mylkpd-linkitem';
+                el.href = item.url;
+                el.target = '_blank';
+                el.rel = 'noopener noreferrer';
+                el.textContent = item.text || item.url;
+                el.title = item.url;
+                el.style.color = item.color;
+                el.addEventListener('click', function(e) {
+                    if (tool === 'move' || tool === 'erase') {
+                        e.preventDefault();
+                    }
+                });
             } else if (item.type === 'check' || item.type === 'cross') {
                 el = document.createElement('div');
                 el.className = 'mylkpd-item mylkpd-mark';
@@ -587,6 +797,7 @@ var MyLKPD = (function() {
             elems.set(item, el);
             owners.set(el, item);
             draw(item);
+            updateLabel(item);
             if (item.type === 'text') {
                 grow(el.firstChild);
             }
@@ -603,6 +814,7 @@ var MyLKPD = (function() {
             if (el && el.parentNode) {
                 el.parentNode.removeChild(el);
             }
+            removeLabel(item);
             if (!silent) {
                 changed();
             }
@@ -616,6 +828,12 @@ var MyLKPD = (function() {
                     el.parentNode.removeChild(el);
                 }
             });
+            labels.forEach(function(label) {
+                if (label.parentNode) {
+                    label.parentNode.removeChild(label);
+                }
+            });
+            labels = new Map();
             items.forEach(createEl);
         }
 
@@ -675,12 +893,17 @@ var MyLKPD = (function() {
                 var targetEl = closestItem(e.target);
                 var targetItem = targetEl ? owners.get(targetEl) : null;
 
+                if (tool === 'math' || tool === 'link') {
+                    e.preventDefault();
+                    placeItem(tool, num, p);
+                    return;
+                }
                 if (tool === 'text' || tool === 'check' || tool === 'cross') {
                     if (targetEl) {
                         return; // Let the student click into an existing box.
                     }
                     e.preventDefault();
-                    var it = {id: newId(), page: num, type: tool, x: p.x, y: p.y, color: color};
+                    var it = {id: newId(), page: num, type: tool, x: p.x, y: p.y, color: color, by: cfg.userid};
                     if (tool === 'text') {
                         it.text = '';
                     }
@@ -723,6 +946,7 @@ var MyLKPD = (function() {
                     shape = {page: num, type: 'pen', points: [[p.x, p.y]], color: color};
                 }
                 shape.id = newId();
+                shape.by = cfg.userid;
                 if (shape.type !== 'highlight') {
                     shape.width = width;
                 }
@@ -799,6 +1023,7 @@ var MyLKPD = (function() {
                     recordUndo([{id: it.id, before: null}]);
                     changed();
                 } else if (st.mode === 'move' && canon(st.item) !== canon(st.orig)) {
+                    claim(st.item);
                     recordUndo([{id: st.item.id, before: st.orig}]);
                     changed();
                 }
@@ -839,7 +1064,10 @@ var MyLKPD = (function() {
             el.classList.add('mylkpd-edited');
             if (by && members[by]) {
                 el.style.setProperty('--mylkpd-peer', members[by].color);
-                el.title = cfg.strings.editedby.replace('{name}', memberName(by));
+                el.title = cfg.strings.editedby.replace('{name}', authorName(by));
+                if (showNames) {
+                    el.setAttribute('data-mylkpd-by', authorName(by));
+                }
             }
         }
 
@@ -880,6 +1108,17 @@ var MyLKPD = (function() {
             p.addEventListener('drop', function(e) {
                 e.preventDefault();
             });
+            p.addEventListener('click', function(e) {
+                var chip = e.target.closest ? e.target.closest('.mylkpd-math') : null;
+                if (chip && tool === 'type') {
+                    editMathChip(chip, id);
+                    return;
+                }
+                var a = e.target.closest ? e.target.closest('a[href]') : null;
+                if (a && (e.ctrlKey || e.metaKey)) {
+                    window.open(a.href, '_blank', 'noopener');
+                }
+            });
         }
 
         function setupBlocks(holder) {
@@ -894,7 +1133,8 @@ var MyLKPD = (function() {
                     p.innerHTML = saved[id].html;
                     markEdited(p, saved[id].by);
                 }
-                shadowBlocks[id] = p.innerHTML;
+                hydrateBlock(p);
+                shadowBlocks[id] = serializeBlock(p);
                 if (!readonly) {
                     makeEditable(p, id);
                 }
@@ -964,16 +1204,506 @@ var MyLKPD = (function() {
                     });
                 });
             }).then(function() {
-                if (editMode) {
+                if (canType) {
                     setupBlocks(holder);
-                } else {
-                    Array.prototype.forEach.call(holder.querySelectorAll('section.docx'), function(section, i) {
-                        setupPage(i + 1, section);
-                    });
                 }
+                Array.prototype.forEach.call(holder.querySelectorAll('section.docx'), function(section, i) {
+                    setupPage(i + 1, section);
+                });
                 fit();
                 window.addEventListener('resize', fit);
             });
+        }
+
+        // ------------------------------------------------ Insert tools (equation, symbol, Arabic, link).
+
+        var MATH_TEMPLATES = [
+            ['\\frac{a}{b}', '\\frac{|}{}'], ['x^{n}', '^{|}'], ['x_{n}', '_{|}'], ['\\sqrt{x}', '\\sqrt{|}'],
+            ['\\sqrt[n]{x}', '\\sqrt[|]{}'], ['\\left(x\\right)', '\\left( | \\right)'], ['\\sum_{i=1}^{n}', '\\sum_{i=1}^{n} |'],
+            ['\\int_{a}^{b}', '\\int_{|}^{} '], ['\\lim_{x\\to a}', '\\lim_{x \\to |} '], ['\\vec{v}', '\\vec{|}'],
+            ['\\overline{AB}', '\\overline{|}'], ['\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}', '\\begin{pmatrix}|&\\\\&\\end{pmatrix}'],
+            ['\\pm', '\\pm '], ['\\times', '\\times '], ['\\div', '\\div '], ['\\cdot', '\\cdot '], ['\\le', '\\le '],
+            ['\\ge', '\\ge '], ['\\ne', '\\ne '], ['\\approx', '\\approx '], ['\\infty', '\\infty '], ['\\pi', '\\pi '],
+            ['\\alpha', '\\alpha '], ['\\beta', '\\beta '], ['\\theta', '\\theta '], ['\\Delta', '\\Delta '],
+            ['x^{\\circ}', '^{\\circ}|'], ['\\rightarrow', '\\rightarrow '], ['\\angle', '\\angle '], ['\\perp', '\\perp ']
+        ];
+        var SYMBOLS = ('± × ÷ = ≠ ≈ ≤ ≥ < > √ ∛ ∞ π ° ∠ ⊥ ∥ △ ∑ ∫ Δ α β γ θ λ μ σ ω Ω ² ³ ¹ ½ ¼ ¾ ' +
+            '→ ← ↑ ↓ ↔ ⇒ ⇔ ∈ ∉ ⊂ ∪ ∩ ∅ ∴ ∵ • … — « » € © ‰ ℃').split(' ');
+        var ARABIC_ROWS = [
+            'ض ص ث ق ف غ ع ه خ ح ج د',
+            'ش س ي ب ل ا ت ن م ك ط',
+            'ئ ء ؤ ر لا ى ة و ز ظ ذ',
+            'آ أ إ ـ \u064E \u0650 \u064F \u0652 \u0651 \u064B \u064D \u064C \u0670',
+            '٠ ١ ٢ ٣ ٤ ٥ ٦ ٧ ٨ ٩ ، ؛ ؟'
+        ];
+
+        function flashHint(text) {
+            if (!hintEl) {
+                return;
+            }
+            hintEl.textContent = text;
+            hintEl.classList.add('text-danger');
+            setTimeout(function() {
+                hintEl.classList.remove('text-danger');
+                hintEl.textContent = (tool === 'math' || tool === 'link') ? cfg.strings.clicktoplace : hintText;
+            }, 2500);
+        }
+
+        function isTarget(el) {
+            return el && document.body.contains(el) && !el.readOnly &&
+                (el.tagName === 'TEXTAREA' || (el.classList.contains('mylkpd-block') && el.isContentEditable));
+        }
+
+        // Remember where the student was typing, so toolbar buttons and dialogs can insert there.
+        container.addEventListener('focusin', function(e) {
+            if (isTarget(e.target)) {
+                lastTarget = e.target;
+            }
+        });
+        document.addEventListener('selectionchange', function() {
+            var sel = window.getSelection();
+            if (sel.rangeCount && lastTarget && lastTarget.tagName !== 'TEXTAREA' &&
+                    lastTarget.contains(sel.getRangeAt(0).startContainer)) {
+                savedRange = sel.getRangeAt(0).cloneRange();
+            }
+        });
+
+        /**
+         * Puts the cursor back where the student was typing.
+         *
+         * @param {Boolean} paragraphsOnly
+         * @return {Boolean} whether there is a place to type
+         */
+        function focusTarget(paragraphsOnly) {
+            if (!isTarget(lastTarget) || (paragraphsOnly && lastTarget.tagName === 'TEXTAREA')) {
+                return false;
+            }
+            if (document.activeElement !== lastTarget) {
+                lastTarget.focus();
+            }
+            if (lastTarget.tagName !== 'TEXTAREA' && savedRange && lastTarget.contains(savedRange.startContainer)) {
+                var sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(savedRange);
+            }
+            return true;
+        }
+
+        function insertText(text) {
+            if (!focusTarget(false)) {
+                flashHint(cfg.strings.needfocus);
+                return;
+            }
+            if (lastTarget.tagName === 'TEXTAREA') {
+                lastTarget.setRangeText(text, lastTarget.selectionStart, lastTarget.selectionEnd, 'end');
+                lastTarget.dispatchEvent(new Event('input', {bubbles: true}));
+            } else {
+                document.execCommand('insertText', false, text);
+            }
+        }
+
+        function deleteBack() {
+            if (!focusTarget(false)) {
+                return;
+            }
+            if (lastTarget.tagName === 'TEXTAREA') {
+                var start = lastTarget.selectionStart;
+                var end = lastTarget.selectionEnd;
+                if (start === end && start > 0) {
+                    // Remove one code point (Arabic letters and marks are single code units).
+                    start -= 1;
+                }
+                lastTarget.setRangeText('', start, end, 'end');
+                lastTarget.dispatchEvent(new Event('input', {bubbles: true}));
+            } else {
+                document.execCommand('delete');
+            }
+        }
+
+        function insertNode(node) {
+            if (!focusTarget(true)) {
+                flashHint(cfg.strings.needfocus);
+                return false;
+            }
+            var sel = window.getSelection();
+            var range = sel.getRangeAt(0);
+            range.deleteContents();
+            range.insertNode(node);
+            range.setStartAfter(node);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            lastTarget.dispatchEvent(new Event('input', {bubbles: true}));
+            return true;
+        }
+
+        function keepFocus(el) {
+            el.addEventListener('mousedown', function(e) {
+                if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+                    e.preventDefault();
+                }
+            });
+        }
+
+        // ---- Modal dialog.
+
+        function dialog(title, build) {
+            return new Promise(function(resolve) {
+                var back = document.createElement('div');
+                back.className = 'mylkpd-modal-back';
+                var box = document.createElement('div');
+                box.className = 'mylkpd-modal';
+                box.setAttribute('role', 'dialog');
+                box.setAttribute('aria-modal', 'true');
+                box.setAttribute('aria-label', title);
+                var h = document.createElement('h3');
+                h.textContent = title;
+                box.appendChild(h);
+                var body = document.createElement('div');
+                box.appendChild(body);
+                var actions = document.createElement('div');
+                actions.className = 'mylkpd-modal-actions';
+                var cancel = document.createElement('button');
+                cancel.type = 'button';
+                cancel.className = 'btn btn-secondary';
+                cancel.textContent = cfg.strings.cancel;
+                var ok = document.createElement('button');
+                ok.type = 'button';
+                ok.className = 'btn btn-primary';
+                ok.textContent = cfg.strings.insert;
+                actions.appendChild(cancel);
+                actions.appendChild(ok);
+                box.appendChild(actions);
+                back.appendChild(box);
+                document.body.appendChild(back);
+                var getValue = build(body, function() {
+                    ok.click();
+                });
+                var done = function(value) {
+                    document.removeEventListener('keydown', onKey, true);
+                    back.parentNode.removeChild(back);
+                    resolve(value);
+                };
+                var onKey = function(e) {
+                    if (e.key === 'Escape') {
+                        e.preventDefault();
+                        done(null);
+                    }
+                };
+                document.addEventListener('keydown', onKey, true);
+                cancel.addEventListener('click', function() {
+                    done(null);
+                });
+                back.addEventListener('mousedown', function(e) {
+                    if (e.target === back) {
+                        done(null);
+                    }
+                });
+                ok.addEventListener('click', function() {
+                    var v = getValue();
+                    if (v !== false) {
+                        done(v);
+                    }
+                });
+                var first = body.querySelector('textarea, input');
+                if (first) {
+                    first.focus();
+                }
+            });
+        }
+
+        function mathDialog(initial) {
+            return dialog(cfg.strings.mathtitle, function(body, submit) {
+                var palette = document.createElement('div');
+                palette.className = 'mylkpd-math-palette';
+                var input = document.createElement('textarea');
+                input.className = 'form-control mylkpd-math-input';
+                input.rows = 2;
+                input.spellcheck = false;
+                input.dir = 'ltr';
+                input.value = initial || '';
+                input.setAttribute('aria-label', 'LaTeX');
+                var preview = document.createElement('div');
+                preview.className = 'mylkpd-math-preview';
+                preview.setAttribute('aria-label', cfg.strings.mathpreview);
+                var hint = document.createElement('div');
+                hint.className = 'small text-muted';
+                hint.textContent = cfg.strings.mathhint;
+                var update = function() {
+                    if (input.value.trim()) {
+                        renderTex(preview, input.value);
+                    } else {
+                        preview.textContent = '';
+                    }
+                };
+                MATH_TEMPLATES.forEach(function(t) {
+                    var b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'btn btn-light btn-sm';
+                    b.title = t[0];
+                    renderTex(b, t[0]);
+                    b.addEventListener('click', function() {
+                        var start = input.selectionStart;
+                        var parts = t[1].split('|');
+                        input.setRangeText(parts.join(''), start, input.selectionEnd, 'end');
+                        var caret = start + parts[0].length;
+                        input.focus();
+                        input.setSelectionRange(caret, caret);
+                        update();
+                    });
+                    palette.appendChild(b);
+                });
+                input.addEventListener('input', update);
+                input.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        submit();
+                    }
+                });
+                body.appendChild(palette);
+                body.appendChild(input);
+                body.appendChild(hint);
+                body.appendChild(preview);
+                update();
+                return function() {
+                    var tex = input.value.trim();
+                    return tex ? tex.slice(0, 1000) : false;
+                };
+            });
+        }
+
+        function linkDialog(initialText) {
+            return dialog(cfg.strings.linktitle, function(body, submit) {
+                var mk = function(label, type, value) {
+                    var wrap = document.createElement('label');
+                    wrap.className = 'mylkpd-field';
+                    wrap.appendChild(document.createTextNode(label));
+                    var inp = document.createElement('input');
+                    inp.type = type;
+                    inp.className = 'form-control';
+                    inp.value = value || '';
+                    inp.addEventListener('keydown', function(e) {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            submit();
+                        }
+                    });
+                    wrap.appendChild(inp);
+                    body.appendChild(wrap);
+                    return inp;
+                };
+                var url = mk(cfg.strings.linkurl, 'url', 'https://');
+                var text = mk(cfg.strings.linktext, 'text', initialText);
+                var err = document.createElement('div');
+                err.className = 'small text-danger';
+                body.appendChild(err);
+                return function() {
+                    var u = url.value.trim();
+                    if (u && !/^[a-z]+:/i.test(u)) {
+                        u = 'https://' + u;
+                    }
+                    if (!/^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(u)) {
+                        err.textContent = cfg.strings.linkinvalid;
+                        url.focus();
+                        return false;
+                    }
+                    return {url: u, text: text.value.trim().slice(0, 200)};
+                };
+            });
+        }
+
+        // ---- Equations and links: typed into a paragraph, or placed on the page.
+
+        function editMathChip(chip, blockId) {
+            if (!blockEls[blockId] || !blockEls[blockId].isContentEditable) {
+                return;
+            }
+            mathDialog(chip.getAttribute('data-tex')).then(function(tex) {
+                if (!tex) {
+                    return;
+                }
+                chip.setAttribute('data-tex', tex);
+                renderTex(chip, tex);
+                touched[blockId] = true;
+                markEdited(blockEls[blockId], cfg.userid);
+                scheduleSave();
+            });
+        }
+
+        function editMathItem(item) {
+            mathDialog(item.tex).then(function(tex) {
+                if (!tex || tex === item.tex) {
+                    return;
+                }
+                recordUndo([{id: item.id, before: copy(item)}]);
+                item.tex = tex;
+                renderTex(elems.get(item), tex);
+                claim(item);
+                changed();
+            });
+        }
+
+        function placeItem(kind, num, p) {
+            var back = prevTool || 'text';
+            var ask = kind === 'math' ? mathDialog('') : linkDialog('');
+            ask.then(function(v) {
+                setTool(back);
+                prevTool = null;
+                if (!v) {
+                    return;
+                }
+                var it = {id: newId(), page: num, type: kind, x: p.x, y: p.y, color: color, by: cfg.userid};
+                if (kind === 'math') {
+                    it.tex = v;
+                } else {
+                    it.url = v.url;
+                    it.text = v.text;
+                }
+                recordUndo([{id: it.id, before: null}]);
+                items.push(it);
+                createEl(it);
+                changed();
+            });
+        }
+
+        function armPlacement(kind) {
+            if (tool !== 'math' && tool !== 'link') {
+                prevTool = tool;
+            }
+            setTool(kind);
+        }
+
+        function onInsert(kind, button) {
+            if (kind === 'symbol' || kind === 'arabic') {
+                togglePanel(kind, button);
+                return;
+            }
+            var inParagraph = canType && tool === 'type';
+            if (!inParagraph) {
+                armPlacement(kind);
+                return;
+            }
+            if (!focusTarget(true)) {
+                flashHint(cfg.strings.needfocus);
+                return;
+            }
+            var range = savedRange;
+            var selected = range ? range.toString() : '';
+            (kind === 'math' ? mathDialog('') : linkDialog(selected)).then(function(v) {
+                if (!v) {
+                    focusTarget(true);
+                    return;
+                }
+                savedRange = range;
+                if (kind === 'math') {
+                    insertNode(mathChip(v));
+                } else {
+                    var a = document.createElement('a');
+                    a.href = v.url;
+                    a.textContent = v.text || selected || v.url;
+                    insertNode(a);
+                }
+            });
+        }
+
+        // ---- Symbol table and Arabic keyboard (floating panels).
+
+        var panels = {};
+
+        function key(label, title, action) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'mylkpd-key';
+            b.textContent = label;
+            if (title) {
+                b.title = title;
+                b.setAttribute('aria-label', title);
+            }
+            keepFocus(b);
+            b.addEventListener('click', action);
+            return b;
+        }
+
+        function buildPanel(kind) {
+            var panel = document.createElement('div');
+            panel.className = 'mylkpd-panel mylkpd-panel-' + kind;
+            panel.setAttribute('role', 'dialog');
+            panel.setAttribute('aria-label', cfg.strings[kind === 'arabic' ? 'arabictitle' : 'symboltitle']);
+            keepFocus(panel);
+            var head = document.createElement('div');
+            head.className = 'mylkpd-panel-head';
+            head.textContent = cfg.strings[kind === 'arabic' ? 'arabictitle' : 'symboltitle'];
+            head.appendChild(key('\u00d7', cfg.strings.close, function() {
+                togglePanel(kind);
+            }));
+            panel.appendChild(head);
+            if (kind === 'symbol') {
+                var grid = document.createElement('div');
+                grid.className = 'mylkpd-keys mylkpd-symbol-grid';
+                SYMBOLS.forEach(function(sym) {
+                    grid.appendChild(key(sym, sym, function() {
+                        insertText(sym);
+                    }));
+                });
+                panel.appendChild(grid);
+            } else {
+                ARABIC_ROWS.forEach(function(row) {
+                    var r = document.createElement('div');
+                    r.className = 'mylkpd-keys mylkpd-arabic-row';
+                    r.dir = 'rtl';
+                    row.split(' ').forEach(function(ch) {
+                        var isMark = /[\u064B-\u0652\u0670]/.test(ch);
+                        r.appendChild(key(isMark ? '\u25CC' + ch : ch, null, function() {
+                            insertText(ch);
+                        }));
+                    });
+                    panel.appendChild(r);
+                });
+                var last = document.createElement('div');
+                last.className = 'mylkpd-keys mylkpd-arabic-row';
+                var space = key(cfg.strings.space, cfg.strings.space, function() {
+                    insertText(' ');
+                });
+                space.classList.add('mylkpd-key-wide');
+                last.appendChild(space);
+                last.appendChild(key('\u232B', cfg.strings.backspace, deleteBack));
+                panel.appendChild(last);
+            }
+            document.body.appendChild(panel);
+            return panel;
+        }
+
+        function togglePanel(kind, button) {
+            var panel = panels[kind] || (panels[kind] = buildPanel(kind));
+            var open = !panel.classList.contains('mylkpd-open');
+            Object.keys(panels).forEach(function(k) {
+                panels[k].classList.remove('mylkpd-open');
+            });
+            Array.prototype.forEach.call(document.querySelectorAll('[data-mylkpd-insert="symbol"],[data-mylkpd-insert="arabic"]'),
+                function(b) {
+                    b.classList.remove('btn-primary');
+                    b.classList.add('btn-outline-secondary');
+                });
+            if (open) {
+                panel.classList.add('mylkpd-open');
+                if (button) {
+                    button.classList.add('btn-primary');
+                    button.classList.remove('btn-outline-secondary');
+                }
+                if (!isTarget(lastTarget)) {
+                    flashHint(cfg.strings.needfocus);
+                }
+            }
+        }
+
+        function setupInsertTools() {
+            Array.prototype.forEach.call(document.querySelectorAll('[data-mylkpd-insert]'), function(b) {
+                keepFocus(b);
+                b.addEventListener('click', function() {
+                    onInsert(b.getAttribute('data-mylkpd-insert'), b);
+                });
+            });
+            Array.prototype.forEach.call(document.querySelectorAll('[data-mylkpd-format]'), keepFocus);
         }
 
         // ------------------------------------------------ Toolbar and buttons.
@@ -987,6 +1717,18 @@ var MyLKPD = (function() {
                 b.classList.toggle('btn-outline-secondary', !on);
                 b.setAttribute('aria-pressed', on ? 'true' : 'false');
             });
+            Array.prototype.forEach.call(document.querySelectorAll('[data-mylkpd-insert]'), function(b) {
+                var on = b.getAttribute('data-mylkpd-insert') === t;
+                b.classList.toggle('btn-primary', on);
+                b.classList.toggle('btn-outline-secondary', !on);
+            });
+            Array.prototype.forEach.call(document.querySelectorAll('[data-mylkpd-format]'), function(b) {
+                b.disabled = t !== 'type';
+            });
+            if (hintEl) {
+                hintEl.textContent = (t === 'math' || t === 'link') ? cfg.strings.clicktoplace : hintText;
+            }
+            updateUndo();
         }
 
         function warnUnsaved(e) {
@@ -994,6 +1736,13 @@ var MyLKPD = (function() {
                 e.preventDefault();
                 e.returnValue = '';
             }
+        }
+
+        var namesToggle = document.querySelector('[data-mylkpd-names]');
+        if (namesToggle) {
+            namesToggle.addEventListener('change', function() {
+                container.classList.toggle('mylkpd-hide-names', !namesToggle.checked);
+            });
         }
 
         if (!readonly) {
@@ -1020,21 +1769,55 @@ var MyLKPD = (function() {
             }
             var undoBtn = document.querySelector('[data-mylkpd-action="undo"]');
             if (undoBtn) {
-                undoBtn.addEventListener('click', undo);
+                undoBtn.addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                });
+                undoBtn.addEventListener('click', function() {
+                    if (tool === 'type') {
+                        focusTarget();
+                        document.execCommand('undo');
+                    } else {
+                        // Leave the text box first, so an empty box is cleaned up before undoing.
+                        if (document.activeElement && document.activeElement.blur) {
+                            document.activeElement.blur();
+                        }
+                        undo();
+                    }
+                });
+            }
+            var redoBtn = document.querySelector('[data-mylkpd-action="redo"]');
+            if (redoBtn) {
+                redoBtn.addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                });
+                redoBtn.addEventListener('click', function() {
+                    focusTarget();
+                    document.execCommand('redo');
+                });
             }
             Array.prototype.forEach.call(document.querySelectorAll('[data-mylkpd-format]'), function(b) {
                 b.addEventListener('mousedown', function(e) {
                     e.preventDefault(); // Keep the cursor in the paragraph.
                 });
                 b.addEventListener('click', function() {
-                    if (document.activeElement && document.activeElement.isContentEditable) {
-                        document.execCommand(b.getAttribute('data-mylkpd-format'));
+                    if (!focusTarget(true)) {
+                        flashHint(cfg.strings.needfocus);
+                        return;
+                    }
+                    var cmd = b.getAttribute('data-mylkpd-format');
+                    document.execCommand('styleWithCSS', false, true);
+                    if (cmd === 'foreColor') {
+                        document.execCommand('foreColor', false, color);
+                    } else if (cmd === 'hiliteColor') {
+                        document.execCommand('hiliteColor', false, '#fff176');
+                    } else {
+                        document.execCommand(cmd);
                     }
                 });
             });
             document.addEventListener('keydown', function(e) {
                 var t = e.target || {};
-                if (!editMode && (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' &&
+                if (tool !== 'type' && (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' &&
                         t.tagName !== 'TEXTAREA' && t.tagName !== 'INPUT' && !t.isContentEditable) {
                     e.preventDefault();
                     undo();
@@ -1087,15 +1870,20 @@ var MyLKPD = (function() {
                     }
                 }, 3000);
             }
-            if (!editMode) {
-                setTool('text');
-            }
+            setTool(tool);
+            setupInsertTools();
         }
 
         // ------------------------------------------------ Start.
 
         var width0 = Math.min(container.clientWidth || 800, 1200);
-        (cfg.mode === 'docx' ? renderDocx() : renderPdf(width0)).then(function() {
+        loadKatex(cfg.katexBase).then(function(k) {
+            katex = k;
+        }, function(err) {
+            window.console.warn('MyLKPD: equations unavailable', err);
+        }).then(function() {
+            return cfg.mode === 'docx' ? renderDocx() : renderPdf(width0);
+        }).then(function() {
             rebuild();
             if (cfg.collab) {
                 flush(); // Announce presence and fetch anything newer than the page.

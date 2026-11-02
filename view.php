@@ -45,6 +45,18 @@ if ($cansubmit && !$nogroup && data_submitted() && confirm_sesskey() && optional
     redirect($PAGE->url, get_string('submitted', 'mod_mylkpd'), null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
+// Edit again: put a submitted worksheet back to draft so it can be changed and submitted again.
+if ($cansubmit && !$nogroup && data_submitted() && confirm_sesskey() && optional_param('reopen', 0, PARAM_BOOL)) {
+    $submission = mylkpd_find_submission($mylkpd, $cm, $USER->id);
+    if (!mylkpd_can_reopen($mylkpd, $submission)) {
+        redirect($PAGE->url, get_string('cannotreopen', 'mod_mylkpd'), null, \core\output\notification::NOTIFY_WARNING);
+    }
+    $submission->status = MYLKPD_STATUS_DRAFT;
+    $submission->timemodified = time();
+    $DB->update_record('mylkpd_submissions', $submission);
+    redirect($PAGE->url, get_string('reopened', 'mod_mylkpd'), null, \core\output\notification::NOTIFY_SUCCESS);
+}
+
 $event = \mod_mylkpd\event\course_module_viewed::create(['objectid' => $mylkpd->id, 'context' => $context]);
 $event->add_record_snapshot('course', $course);
 $event->add_record_snapshot('mylkpd', $mylkpd);
@@ -81,7 +93,28 @@ if ($issubmitted) {
     $key = $team ? 'groupsubmittedinfo' : 'submittedinfo';
     $a = $team ? (object) ['time' => userdate($submission->timemodified),
         'name' => fullname(core_user::get_user($submission->userid))] : userdate($submission->timemodified);
-    echo $OUTPUT->notification(get_string($key, 'mod_mylkpd', $a), \core\output\notification::NOTIFY_INFO);
+    // The button is printed outside the notification: notifications are cleaned with HTMLPurifier,
+    // which removes form elements.
+    echo $OUTPUT->notification(get_string($key, 'mod_mylkpd', $a), \core\output\notification::NOTIFY_INFO, false);
+    if (mylkpd_can_reopen($mylkpd, $submission)) {
+        $confirm = get_string($team ? 'editagainconfirmgroup' : 'editagainconfirm', 'mod_mylkpd');
+        echo html_writer::start_tag('form', ['method' => 'post', 'action' => $PAGE->url->out(false),
+            'class' => 'mylkpd-reopen mb-3', 'data-mylkpd-confirm' => $confirm]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'reopen', 'value' => 1]);
+        echo html_writer::tag('button', '&#9998; ' . get_string('editagain', 'mod_mylkpd'),
+            ['type' => 'submit', 'class' => 'btn btn-primary']);
+        echo html_writer::span(get_string('editagainhint', 'mod_mylkpd'), 'text-muted small');
+        echo html_writer::end_tag('form');
+        $PAGE->requires->js_init_code("document.querySelectorAll('form[data-mylkpd-confirm]').forEach(function(f) {
+            f.addEventListener('submit', function(e) {
+                if (!window.confirm(f.getAttribute('data-mylkpd-confirm'))) { e.preventDefault(); }
+            });
+        });", true);
+    } else {
+        $reason = ((int) ($mylkpd->allowresubmit ?? 1) === 0) ? 'cannotreopensetting' : 'cannotreopengraded';
+        echo html_writer::div(get_string($reason, 'mod_mylkpd'), 'mylkpd-reopen-reason text-muted small mb-3');
+    }
     if ($submission->grade !== null || !empty($submission->feedback)) {
         $out = html_writer::tag('strong', get_string('yourgrade', 'mod_mylkpd') . ': ')
             . s(mylkpd_display_grade($mylkpd, $submission->grade));

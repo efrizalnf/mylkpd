@@ -27,4 +27,13 @@
     <licenseversion></licenseversion>
     <repository>https://github.com/Stuk/jszip</repository>
   </library>
+  <library>
+    <location>js/katex</location>
+    <name>KaTeX</name>
+    <description>Renders equations (LaTeX) in worksheets.</description>
+    <version>0.16.29</version>
+    <license>MIT</license>
+    <licenseversion></licenseversion>
+    <repository>https://github.com/KaTeX/KaTeX</repository>
+  </library>
 </libraries>

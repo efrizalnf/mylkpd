@@ -243,14 +243,29 @@
 }
 
 /* Group work: who is online */
+.path-mod-mylkpd .mylkpd-teambar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem 1rem;
+    max-width: 1000px;
+    margin: -.5rem auto 1rem;
+}
+
 .path-mod-mylkpd .mylkpd-presence {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: .4rem;
-    max-width: 1000px;
-    margin: -.5rem auto 1rem;
     font-size: .875rem;
+}
+
+.path-mod-mylkpd .mylkpd-namestoggle {
+    display: inline-flex;
+    align-items: center;
+    margin: 0 0 0 auto;
+    cursor: pointer;
 }
 
 .path-mod-mylkpd .mylkpd-presence:empty {
@@ -289,11 +304,11 @@
     outline: none;
 }
 
-.path-mod-mylkpd .mylkpd-work-edit:not(.mylkpd-mode-view) .mylkpd-block {
+.path-mod-mylkpd .mylkpd-mode-type .mylkpd-block {
     cursor: text;
 }
 
-.path-mod-mylkpd .mylkpd-work-edit:not(.mylkpd-mode-view) .mylkpd-block:hover {
+.path-mod-mylkpd .mylkpd-mode-type .mylkpd-block:hover {
     background: rgba(26, 71, 184, .06);
 }
 
@@ -338,4 +353,330 @@
 .path-mod-mylkpd .mylkpd-savestate {
     align-self: center;
     margin-right: auto;
+}
+
+/* Author names (group work) */
+.path-mod-mylkpd .mylkpd-namelabel {
+    position: absolute;
+    z-index: 2;
+    padding: 0 .4em;
+    font: 600 max(9px, 1.05cqw)/1.35 sans-serif;
+    color: #fff;
+    white-space: nowrap;
+    border-radius: 3px;
+    opacity: .92;
+    pointer-events: none;
+    transform: translateY(calc(-100% - 2px));
+}
+
+.path-mod-mylkpd .mylkpd-namelabel-text {
+    transform: translateY(calc(-100% - 1.3cqw));
+}
+
+.path-mod-mylkpd .mylkpd-namelabel-check,
+.path-mod-mylkpd .mylkpd-namelabel-cross {
+    transform: translate(1.2cqw, -150%);
+}
+
+/* Paragraph author: in the page's right margin, so it never covers the text. */
+.path-mod-mylkpd .mylkpd-work-edit .mylkpd-block[data-mylkpd-by]::before {
+    content: attr(data-mylkpd-by);
+    position: absolute;
+    top: 0;
+    left: calc(100% + 6px);
+    z-index: 2;
+    max-width: 70px;
+    overflow: hidden;
+    padding: 0 .4em;
+    font: 600 10px/1.5 sans-serif;
+    color: #fff;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    background: var(--mylkpd-peer, #1a47b8);
+    border-radius: 3px;
+    opacity: .9;
+    pointer-events: none;
+}
+
+/* Inside a table cell there is no margin: show it in the cell's top-right corner instead. */
+.path-mod-mylkpd .mylkpd-work-edit td .mylkpd-block[data-mylkpd-by]::before,
+.path-mod-mylkpd .mylkpd-work-edit th .mylkpd-block[data-mylkpd-by]::before {
+    left: auto;
+    right: 0;
+    transform: translateY(-70%);
+}
+
+.path-mod-mylkpd .mylkpd-work-edit .mylkpd-block.mylkpd-locked::before,
+.path-mod-mylkpd .mylkpd-hide-names .mylkpd-namelabel,
+.path-mod-mylkpd .mylkpd-hide-names .mylkpd-block[data-mylkpd-by]::before {
+    display: none;
+}
+
+.path-mod-mylkpd .mylkpd-reopen {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* Toolbar rows */
+.path-mod-mylkpd .mylkpd-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .4rem 1rem;
+    width: 100%;
+}
+
+.path-mod-mylkpd .mylkpd-toolbar .btn:disabled {
+    opacity: .4;
+}
+
+.path-mod-mylkpd .mylkpd-a-color {
+    border-bottom: 3px solid #c62828;
+    line-height: 1;
+}
+
+.path-mod-mylkpd .mylkpd-a-mark {
+    padding: 0 2px;
+    background: #fff176;
+}
+
+/* Typing mode: clicks go to the document paragraphs, drawings stay visible */
+.path-mod-mylkpd .mylkpd-mode-type .mylkpd-layer {
+    pointer-events: none;
+    touch-action: auto;
+}
+
+.path-mod-mylkpd .mylkpd-mode-math .mylkpd-layer,
+.path-mod-mylkpd .mylkpd-mode-link .mylkpd-layer {
+    cursor: copy;
+    touch-action: auto;
+}
+
+/* Equations */
+.path-mod-mylkpd .mylkpd-math {
+    display: inline-block;
+    padding: 0 2px;
+    border-radius: 3px;
+    unicode-bidi: isolate;
+    direction: ltr;
+}
+
+/* docx-preview styles every span (pre-wrap, min-height and font-size 11pt), which breaks KaTeX's
+   layout (its vertical lists need height 0). Undo that inside equations; KaTeX's own sizing
+   classes are more specific and still apply. */
+.path-mod-mylkpd .mylkpd-math span,
+.path-mod-mylkpd .mylkpd-mathitem span {
+    min-height: 0;
+    font-size: inherit;
+    white-space: nowrap;
+    overflow-wrap: normal;
+}
+
+.path-mod-mylkpd .mylkpd-math .katex,
+.path-mod-mylkpd .mylkpd-mathitem .katex {
+    font: normal 1.21em KaTeX_Main, "Times New Roman", serif;
+}
+
+.path-mod-mylkpd .mylkpd-mode-type .mylkpd-math {
+    cursor: pointer;
+}
+
+.path-mod-mylkpd .mylkpd-mode-type .mylkpd-math:hover {
+    background: rgba(26, 71, 184, .12);
+}
+
+.path-mod-mylkpd .mylkpd-mathitem,
+.path-mod-mylkpd .mylkpd-linkitem {
+    position: absolute;
+    font-size: 1.9cqw;
+    line-height: 1.3;
+    white-space: nowrap;
+    transform: translateY(-50%);
+}
+
+.path-mod-mylkpd .mylkpd-mathitem {
+    padding: 0 .2em;
+    background: rgba(255, 249, 196, .6);
+    border-radius: 2px;
+}
+
+.path-mod-mylkpd .mylkpd-linkitem {
+    font-size: 1.6cqw;
+    padding: 0 .3em;
+    text-decoration: underline;
+    background: rgba(255, 255, 255, .85);
+    border-radius: 2px;
+}
+
+.path-mod-mylkpd .mylkpd-linkitem::before {
+    content: "\1F517\00A0";
+    text-decoration: none;
+}
+
+.path-mod-mylkpd .mylkpd-namelabel-math,
+.path-mod-mylkpd .mylkpd-namelabel-link {
+    transform: translateY(calc(-100% - 1.4cqw));
+}
+
+/* Arabic text */
+.path-mod-mylkpd .mylkpd-text textarea,
+.path-mod-mylkpd .mylkpd-block {
+    unicode-bidi: plaintext;
+}
+
+/* Dialogs */
+.mylkpd-modal-back {
+    position: fixed;
+    inset: 0;
+    z-index: 1060;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(0, 0, 0, .45);
+}
+
+.mylkpd-modal {
+    width: min(640px, 100%);
+    max-height: 90vh;
+    overflow: auto;
+    padding: 1rem 1.25rem;
+    background: #fff;
+    border-radius: .5rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .3);
+}
+
+.mylkpd-modal h3 {
+    margin: 0 0 .75rem;
+    font-size: 1.15rem;
+}
+
+.mylkpd-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: .5rem;
+    margin-top: 1rem;
+}
+
+.mylkpd-math-palette {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    gap: .25rem;
+    margin-bottom: .5rem;
+}
+
+.mylkpd-math-palette .btn {
+    min-height: 2.4rem;
+    padding: .15rem;
+    overflow: hidden;
+    font-size: .8rem;
+}
+
+.mylkpd-math-input {
+    width: 100%;
+    font-family: monospace;
+}
+
+.mylkpd-math-preview {
+    min-height: 3rem;
+    margin-top: .5rem;
+    padding: .5rem;
+    font-size: 1.3rem;
+    text-align: center;
+    border: 1px dashed #ced4da;
+    border-radius: .25rem;
+}
+
+.mylkpd-field {
+    display: block;
+    margin-bottom: .5rem;
+}
+
+/* Symbol table and Arabic keyboard */
+.mylkpd-panel {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 1050;
+    display: none;
+    max-width: calc(100vw - 2rem);
+    padding: .5rem;
+    background: #fff;
+    border: 1px solid #ced4da;
+    border-radius: .5rem;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .2);
+}
+
+.mylkpd-panel.mylkpd-open {
+    display: block;
+}
+
+.mylkpd-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: .35rem;
+    font-weight: 600;
+    font-size: .9rem;
+}
+
+.mylkpd-keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-bottom: 3px;
+}
+
+.mylkpd-symbol-grid {
+    display: grid;
+    grid-template-columns: repeat(10, 2.2rem);
+}
+
+.mylkpd-key {
+    min-width: 2.2rem;
+    height: 2.3rem;
+    padding: 0 .3rem;
+    font-size: 1.1rem;
+    line-height: 1;
+    background: #f8f9fa;
+    border: 1px solid #ced4da;
+    border-radius: .3rem;
+    cursor: pointer;
+}
+
+.mylkpd-key:hover {
+    background: #e9ecef;
+}
+
+.mylkpd-panel-arabic .mylkpd-key {
+    font-family: "Traditional Arabic", "Amiri", "Scheherazade New", "Noto Naskh Arabic", "Arial", sans-serif;
+    font-size: 1.35rem;
+}
+
+.mylkpd-key-wide {
+    flex: 1;
+    font-size: .85rem !important;
+}
+
+.mylkpd-panel-head .mylkpd-key {
+    min-width: 1.8rem;
+    height: 1.8rem;
+}
+
+@media (max-width: 575.98px) {
+    .mylkpd-panel {
+        right: .25rem;
+        left: .25rem;
+        bottom: .25rem;
+    }
+
+    .mylkpd-symbol-grid {
+        grid-template-columns: repeat(8, 1fr);
+    }
+
+    .mylkpd-panel-arabic .mylkpd-key {
+        min-width: 1.9rem;
+        font-size: 1.1rem;
+    }
 }

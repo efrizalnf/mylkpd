@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="mod/mylkpd/db" VERSION="20261104" COMMENT="XMLDB file for Moodle mod_mylkpd"
+<XMLDB PATH="mod/mylkpd/db" VERSION="20261105" COMMENT="XMLDB file for Moodle mod_mylkpd"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
@@ -15,6 +15,7 @@
         <FIELD NAME="rendermode" TYPE="char" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="How the worksheet is shown: pdf or docx. Decided on first view."/>
         <FIELD NAME="workmode" TYPE="char" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="annotate = draw/write on top of the pages, edit = edit the document text (docx only)"/>
         <FIELD NAME="teamsubmission" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1 = one shared submission per group"/>
+        <FIELD NAME="allowresubmit" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="Edit after submitting: 0 = no, 1 = until graded, 2 = always"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
       </FIELDS>

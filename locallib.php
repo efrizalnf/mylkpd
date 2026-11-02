@@ -16,6 +16,8 @@ require_once(__DIR__ . '/lib.php');
 define('MYLKPD_PDFJS_PATH', '/mod/mylkpd/js/pdfjs');
 /** docx-preview + JSZip are bundled with the plugin (js/docx). */
 define('MYLKPD_DOCX_PATH', '/mod/mylkpd/js/docx');
+/** KaTeX (equations) is bundled with the plugin (js/katex). */
+define('MYLKPD_KATEX_PATH', '/mod/mylkpd/js/katex');
 
 /**
  * Pen colours students can choose from. The first one is the default.
@@ -163,6 +165,22 @@ function mylkpd_clean_item($a): ?array {
         case 'check':
         case 'cross':
             $item += ['x' => $pct($a['x'] ?? 0), 'y' => $pct($a['y'] ?? 0)];
+            break;
+        case 'math':
+            // LaTeX source. Only ever shown through KaTeX (trust off) or as plain text.
+            $tex = trim(preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', (string) ($a['tex'] ?? '')));
+            if ($tex === '' || core_text::strlen($tex) > 1000) {
+                return null;
+            }
+            $item += ['x' => $pct($a['x'] ?? 0), 'y' => $pct($a['y'] ?? 0), 'tex' => $tex];
+            break;
+        case 'link':
+            $url = clean_param(trim((string) ($a['url'] ?? '')), PARAM_URL);
+            if (!preg_match('~^https?://~i', $url)) {
+                return null;
+            }
+            $label = trim(core_text::substr(clean_param((string) ($a['text'] ?? ''), PARAM_TEXT), 0, 200));
+            $item += ['x' => $pct($a['x'] ?? 0), 'y' => $pct($a['y'] ?? 0), 'text' => $label, 'url' => $url];
             break;
         case 'ellipse':
         case 'highlight':
@@ -475,6 +493,25 @@ function mylkpd_contributions(array $data): array {
 }
 
 /**
+ * Whether students may reopen (edit again) a submitted worksheet.
+ *
+ * @param stdClass $mylkpd
+ * @param stdClass|null $submission
+ * @return bool
+ */
+function mylkpd_can_reopen(stdClass $mylkpd, ?stdClass $submission): bool {
+    if (!$submission || $submission->status != MYLKPD_STATUS_SUBMITTED) {
+        return false;
+    }
+    $mode = (int) ($mylkpd->allowresubmit ?? 1);
+    if ($mode === 2) {
+        return true;
+    }
+    // "Until graded" means until a real grade is saved; feedback alone does not lock the work.
+    return $mode === 1 && ($submission->grade === null || $submission->grade === '');
+}
+
+/**
  * Formats a grade for display.
  *
  * @param stdClass $mylkpd
@@ -493,45 +530,66 @@ function mylkpd_display_grade(stdClass $mylkpd, $grade): string {
 }
 
 /**
- * Builds the editing toolbar.
+ * Toolbar button.
  *
+ * @param string $attr data attribute name (without data-mylkpd-)
+ * @param string $value
+ * @param string $icon HTML
+ * @param string $label
+ * @param bool $showlabel
+ * @param bool $active
+ * @return string
+ */
+function mylkpd_toolbar_button(string $attr, string $value, string $icon, string $label, bool $showlabel = true,
+        bool $active = false): string {
+    $attrs = [
+        'type' => 'button',
+        'class' => 'btn btn-sm ' . ($active ? 'btn-primary' : 'btn-outline-secondary'),
+        'data-mylkpd-' . $attr => $value,
+        'title' => $label,
+        'aria-label' => $label,
+    ];
+    if ($attr === 'tool') {
+        $attrs['aria-pressed'] = $active ? 'true' : 'false';
+    }
+    $content = html_writer::span($icon, 'mylkpd-icon', ['aria-hidden' => 'true']);
+    if ($showlabel) {
+        $content .= html_writer::span($label, 'mylkpd-tool-label');
+    }
+    return html_writer::tag('button', $content, $attrs);
+}
+
+/**
+ * Builds the editing toolbar (inspired by CKEditor): drawing tools, text formatting and inserts.
+ *
+ * @param bool $cantype whether the document is a .docx shown in the browser (typing in paragraphs possible)
+ * @param string $defaulttool
  * @return string HTML
  */
-function mylkpd_render_toolbar(): string {
-    $tools = [
-        'move' => '&#10021;',
-        'text' => 'T',
-        'check' => '&#10003;',
-        'cross' => '&#10007;',
-        'circle' => '&#9711;',
-        'highlight' => '&#9644;',
-        'line' => '&#9585;',
-        'pen' => '&#9998;',
-        'erase' => '&#9003;',
-    ];
-    $html = html_writer::start_div('mylkpd-toolbar', ['role' => 'toolbar',
-        'aria-label' => get_string('toolbar', 'mod_mylkpd')]);
+function mylkpd_render_toolbar(bool $cantype, string $defaulttool): string {
+    $s = function($key) {
+        return get_string($key, 'mod_mylkpd');
+    };
+    $html = html_writer::start_div('mylkpd-toolbar', ['role' => 'toolbar', 'aria-label' => $s('toolbar')]);
 
+    // Row 1: tools.
+    $html .= html_writer::start_div('mylkpd-row');
+    $tools = [];
+    if ($cantype) {
+        $tools['type'] = '&#9000;';
+    }
+    $tools += ['move' => '&#10021;', 'text' => 'T', 'check' => '&#10003;', 'cross' => '&#10007;',
+        'circle' => '&#9711;', 'highlight' => '&#9644;', 'line' => '&#9585;', 'pen' => '&#9998;', 'erase' => '&#9003;'];
     $html .= html_writer::start_div('mylkpd-group');
     foreach ($tools as $tool => $icon) {
-        $label = get_string('tool' . $tool, 'mod_mylkpd');
-        $active = $tool === 'text';
-        $html .= html_writer::tag('button',
-            html_writer::span($icon, 'mylkpd-icon', ['aria-hidden' => 'true']) .
-            html_writer::span($label, 'mylkpd-tool-label'), [
-                'type' => 'button',
-                'class' => 'btn btn-sm ' . ($active ? 'btn-primary' : 'btn-outline-secondary'),
-                'data-mylkpd-tool' => $tool,
-                'aria-pressed' => $active ? 'true' : 'false',
-                'title' => $label,
-            ]);
+        $html .= mylkpd_toolbar_button('tool', $tool, $icon, $s('tool' . $tool), true, $tool === $defaulttool);
     }
     $html .= html_writer::end_div();
 
-    $html .= html_writer::start_div('mylkpd-group', ['aria-label' => get_string('color', 'mod_mylkpd')]);
+    $html .= html_writer::start_div('mylkpd-group', ['aria-label' => $s('color')]);
     $names = ['colorblue', 'colorred', 'colorblack', 'colorgreen', 'coloryellow'];
     foreach (mylkpd_colors() as $i => $color) {
-        $label = get_string($names[$i], 'mod_mylkpd');
+        $label = $s($names[$i]);
         $html .= html_writer::tag('button', '', [
             'type' => 'button',
             'class' => 'mylkpd-swatch' . ($i === 0 ? ' active' : ''),
@@ -542,28 +600,43 @@ function mylkpd_render_toolbar(): string {
             'title' => $label,
         ]);
     }
-    $html .= html_writer::select([
-        2 => get_string('widththin', 'mod_mylkpd'),
-        4 => get_string('widthmedium', 'mod_mylkpd'),
-        8 => get_string('widththick', 'mod_mylkpd'),
-    ], 'mylkpdwidth', 4, false, [
-        'class' => 'custom-select form-select form-select-sm mylkpd-width',
-        'data-mylkpd-width' => '1',
-        'aria-label' => get_string('width', 'mod_mylkpd'),
-        'title' => get_string('width', 'mod_mylkpd'),
-    ]);
-    $html .= html_writer::tag('button',
-        html_writer::span('&#8630;', 'mylkpd-icon', ['aria-hidden' => 'true']) .
-        html_writer::span(get_string('undo', 'mod_mylkpd'), 'mylkpd-tool-label'), [
-            'type' => 'button',
-            'class' => 'btn btn-sm btn-outline-secondary',
-            'data-mylkpd-action' => 'undo',
-            'title' => get_string('undo', 'mod_mylkpd') . ' (Ctrl+Z)',
-            'disabled' => 'disabled',
+    $html .= html_writer::select([2 => $s('widththin'), 4 => $s('widthmedium'), 8 => $s('widththick')],
+        'mylkpdwidth', 4, false, [
+            'class' => 'custom-select form-select form-select-sm mylkpd-width',
+            'data-mylkpd-width' => '1',
+            'aria-label' => $s('width'),
+            'title' => $s('width'),
         ]);
+    $html .= mylkpd_toolbar_button('action', 'undo', '&#8630;', $s('undo') . ' (Ctrl+Z)', false);
+    $html .= mylkpd_toolbar_button('action', 'redo', '&#8631;', $s('redo') . ' (Ctrl+Y)', false);
+    $html .= html_writer::end_div();
     $html .= html_writer::end_div();
 
-    $html .= html_writer::div(get_string('toolhint', 'mod_mylkpd'), 'mylkpd-hint text-muted small');
+    // Row 2: text formatting (paragraphs) and inserts.
+    $html .= html_writer::start_div('mylkpd-row');
+    if ($cantype) {
+        $html .= html_writer::start_div('mylkpd-group mylkpd-formatgroup', ['aria-label' => $s('formatting')]);
+        $formats = [
+            'bold' => '<b>B</b>', 'italic' => '<i>I</i>', 'underline' => '<u>U</u>', 'strikeThrough' => '<s>S</s>',
+            'superscript' => 'x&sup2;', 'subscript' => 'x&#8322;',
+            'foreColor' => '<span class="mylkpd-a-color">A</span>', 'hiliteColor' => '<span class="mylkpd-a-mark">ab</span>',
+            'removeFormat' => '&#10008;<small>T</small>',
+        ];
+        foreach ($formats as $cmd => $icon) {
+            $html .= mylkpd_toolbar_button('format', $cmd, $icon, $s('format' . strtolower($cmd)), false);
+        }
+        $html .= html_writer::end_div();
+    }
+    $html .= html_writer::start_div('mylkpd-group', ['aria-label' => $s('insert')]);
+    $inserts = ['math' => '&#8721;', 'symbol' => '&#937;', 'arabic' => '&#1593;', 'link' => '&#128279;'];
+    foreach ($inserts as $what => $icon) {
+        $html .= mylkpd_toolbar_button('insert', $what, $icon, $s('insert' . $what));
+    }
+    $html .= html_writer::end_div();
+    $html .= html_writer::end_div();
+
+    $html .= html_writer::div($s($cantype ? 'toolhinttype' : 'toolhint'), 'mylkpd-hint text-muted small',
+        ['data-mylkpd-hint' => 1]);
     $html .= html_writer::end_div();
     return $html;
 }
@@ -582,26 +655,6 @@ function mylkpd_status_badge(?stdClass $sub): string {
         return html_writer::span(get_string('statussubmitted', 'mod_mylkpd'), 'badge bg-success');
     }
     return html_writer::span(get_string('statusdraft', 'mod_mylkpd'), 'badge bg-warning text-dark');
-}
-
-/**
- * Formatting buttons for edit mode.
- *
- * @return string HTML
- */
-function mylkpd_render_editbar(): string {
-    $html = html_writer::start_div('mylkpd-toolbar', ['role' => 'toolbar',
-        'aria-label' => get_string('toolbar', 'mod_mylkpd')]);
-    $html .= html_writer::start_div('mylkpd-group');
-    foreach (['bold' => '<b>B</b>', 'italic' => '<i>I</i>', 'underline' => '<u>U</u>'] as $cmd => $icon) {
-        $label = get_string('format' . $cmd, 'mod_mylkpd');
-        $html .= html_writer::tag('button', $icon, ['type' => 'button', 'class' => 'btn btn-sm btn-outline-secondary',
-            'data-mylkpd-format' => $cmd, 'title' => $label, 'aria-label' => $label]);
-    }
-    $html .= html_writer::end_div();
-    $html .= html_writer::div(get_string('edithint', 'mod_mylkpd'), 'mylkpd-hint text-muted small');
-    $html .= html_writer::end_div();
-    return $html;
 }
 
 /**
@@ -631,6 +684,9 @@ function mylkpd_render_worksheet(stdClass $mylkpd, $cm, context_module $context,
     $docurl = moodle_url::make_pluginfile_url($context->id, 'mod_mylkpd', $file->get_filearea(),
         $file->get_itemid(), $file->get_filepath(), $file->get_filename());
     $workmode = ($mylkpd->workmode ?? '') === 'edit' ? 'edit' : 'annotate';
+    // A .docx shown in the browser can always be typed into, alongside the drawing tools.
+    $cantype = $doc['mode'] === 'docx';
+    $defaulttool = ($cantype && $workmode === 'edit') ? 'type' : 'text';
     $data = mylkpd_client_data(mylkpd_decode_data($submission->answers ?? null));
     $team = !empty($mylkpd->teamsubmission);
 
@@ -642,12 +698,16 @@ function mylkpd_render_worksheet(stdClass $mylkpd, $cm, context_module $context,
         'pdfjsBase' => (new moodle_url(MYLKPD_PDFJS_PATH))->out(false),
         'workerUrl' => (new moodle_url(MYLKPD_PDFJS_PATH . '/pdf.worker.min.js'))->out(false),
         'docxBase' => (new moodle_url(MYLKPD_DOCX_PATH))->out(false),
+        'katexBase' => (new moodle_url(MYLKPD_KATEX_PATH))->out(false),
+        'canType' => $cantype,
+        'defaultTool' => $defaulttool,
         'syncUrl' => (new moodle_url('/mod/mylkpd/ajax.php'))->out(false),
         'cmid' => (int) $cm->id,
         'sesskey' => sesskey(),
         'userid' => (int) $USER->id,
         'rev' => (int) ($submission->revision ?? 0),
         'collab' => $team && !$readonly,
+        'showNames' => $team,
         'colors' => mylkpd_colors(),
         'items' => $data['items'],
         'blocks' => $data['blocks'],
@@ -666,6 +726,22 @@ function mylkpd_render_worksheet(stdClass $mylkpd, $cm, context_module $context,
             'editing' => get_string('editing', 'mod_mylkpd', '{name}'),
             'editedby' => get_string('editedby', 'mod_mylkpd', '{name}'),
             'you' => get_string('you', 'mod_mylkpd'),
+            'insert' => get_string('insertbutton', 'mod_mylkpd'),
+            'cancel' => get_string('cancel'),
+            'close' => get_string('closebuttontitle'),
+            'mathtitle' => get_string('insertmath', 'mod_mylkpd'),
+            'mathhint' => get_string('mathhint', 'mod_mylkpd'),
+            'mathpreview' => get_string('mathpreview', 'mod_mylkpd'),
+            'linktitle' => get_string('insertlink', 'mod_mylkpd'),
+            'linktext' => get_string('linktext', 'mod_mylkpd'),
+            'linkurl' => get_string('linkurl', 'mod_mylkpd'),
+            'linkinvalid' => get_string('linkinvalid', 'mod_mylkpd'),
+            'symboltitle' => get_string('insertsymbol', 'mod_mylkpd'),
+            'arabictitle' => get_string('insertarabic', 'mod_mylkpd'),
+            'space' => get_string('arabicspace', 'mod_mylkpd'),
+            'backspace' => get_string('arabicbackspace', 'mod_mylkpd'),
+            'clicktoplace' => get_string('clicktoplace', 'mod_mylkpd'),
+            'needfocus' => get_string('needfocus', 'mod_mylkpd'),
         ],
     ];
 
@@ -674,12 +750,18 @@ function mylkpd_render_worksheet(stdClass $mylkpd, $cm, context_module $context,
 
     $html = '';
     if (!$readonly) {
-        $html .= $workmode === 'edit' ? mylkpd_render_editbar() : mylkpd_render_toolbar();
+        $html .= mylkpd_render_toolbar($cantype, $defaulttool);
     }
-    if ($team && !$readonly) {
-        $html .= html_writer::div('', 'mylkpd-presence', ['id' => 'mylkpd-presence', 'aria-live' => 'polite']);
+    if ($team) {
+        $toggle = html_writer::tag('label',
+            html_writer::empty_tag('input', ['type' => 'checkbox', 'checked' => 'checked', 'data-mylkpd-names' => 1,
+                'class' => 'form-check-input me-1 mr-1']) . get_string('shownames', 'mod_mylkpd'),
+            ['class' => 'mylkpd-namestoggle small']);
+        $html .= html_writer::div(
+            ($readonly ? '' : html_writer::div('', 'mylkpd-presence', ['id' => 'mylkpd-presence', 'aria-live' => 'polite'])) .
+            $toggle, 'mylkpd-teambar');
     }
-    $classes = 'mylkpd-container mylkpd-work-' . $workmode . ' mylkpd-mode-' . ($readonly ? 'view' : 'text');
+    $classes = 'mylkpd-container' . ($cantype ? ' mylkpd-work-edit' : '') . ' mylkpd-mode-' . ($readonly ? 'view' : $defaulttool);
     $html .= html_writer::div('', $classes, ['id' => 'mylkpd-container']);
 
     return ['html' => $html, 'ready' => true];
