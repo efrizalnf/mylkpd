@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<libraries>
+  <library>
+    <location>js/pdfjs</location>
+    <name>PDF.js</name>
+    <description>Mozilla PDF.js, renders the worksheet pages in the browser.</description>
+    <version>3.11.174</version>
+    <license>Apache</license>
+    <licenseversion>2.0</licenseversion>
+    <repository>https://github.com/mozilla/pdf.js</repository>
+  </library>
+  <library>
+    <location>js/docx/docx-preview.min.js</location>
+    <name>docx-preview</name>
+    <description>Renders .docx worksheets in the browser when the site has no document converter.</description>
+    <version>0.4.1</version>
+    <license>Apache</license>
+    <licenseversion>2.0</licenseversion>
+    <repository>https://github.com/VolodymyrBaydalka/docxjs</repository>
+  </library>
+  <library>
+    <location>js/docx/jszip.min.js</location>
+    <name>JSZip</name>
+    <description>Reads the .docx (zip) package for docx-preview.</description>
+    <version>3.10.1</version>
+    <license>MIT</license>
+    <licenseversion></licenseversion>
+    <repository>https://github.com/Stuk/jszip</repository>
+  </library>
+</libraries>

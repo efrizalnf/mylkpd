@@ -1,0 +1,341 @@
+/* mod_mylkpd */
+.path-mod-mylkpd .mylkpd-toolbar {
+    position: sticky;
+    top: 60px;
+    z-index: 20;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem 1rem;
+    max-width: 1000px;
+    margin: 0 auto 1rem;
+    padding: .5rem .75rem;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: .5rem;
+}
+
+.path-mod-mylkpd .mylkpd-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .25rem;
+}
+
+.path-mod-mylkpd .mylkpd-toolbar .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+}
+
+.path-mod-mylkpd .mylkpd-icon {
+    display: inline-block;
+    min-width: 1em;
+    font-weight: bold;
+    text-align: center;
+}
+
+.path-mod-mylkpd .mylkpd-swatch {
+    width: 1.6rem;
+    height: 1.6rem;
+    padding: 0;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px #adb5bd;
+    cursor: pointer;
+}
+
+.path-mod-mylkpd .mylkpd-swatch.active {
+    box-shadow: 0 0 0 2px #212529;
+}
+
+.path-mod-mylkpd .mylkpd-width {
+    width: auto;
+    margin-left: .25rem;
+}
+
+.path-mod-mylkpd .mylkpd-hint {
+    flex-basis: 100%;
+}
+
+@media (max-width: 767.98px) {
+    .path-mod-mylkpd .mylkpd-tool-label {
+        display: none;
+    }
+}
+
+/* Document area */
+.path-mod-mylkpd .mylkpd-container {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.path-mod-mylkpd .mylkpd-page {
+    position: relative;
+    width: 100%;
+    margin: 0 auto 1.5rem;
+    background: #fff;
+    border: 1px solid #ced4da;
+}
+
+.path-mod-mylkpd .mylkpd-page canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.path-mod-mylkpd .mylkpd-docx .docx-wrapper {
+    padding: 0 0 1rem;
+    background: transparent;
+}
+
+.path-mod-mylkpd .mylkpd-docx .docx-wrapper > section.docx {
+    margin-bottom: 1.5rem;
+    border: 1px solid #ced4da;
+    box-shadow: none;
+}
+
+.path-mod-mylkpd .mylkpd-host {
+    position: relative;
+    container-type: inline-size;
+}
+
+/* Answer layer */
+.path-mod-mylkpd .mylkpd-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    cursor: crosshair;
+    touch-action: none;
+}
+
+.path-mod-mylkpd .mylkpd-mode-text .mylkpd-layer {
+    cursor: text;
+}
+
+.path-mod-mylkpd .mylkpd-mode-text .mylkpd-layer,
+.path-mod-mylkpd .mylkpd-mode-check .mylkpd-layer,
+.path-mod-mylkpd .mylkpd-mode-cross .mylkpd-layer,
+.path-mod-mylkpd .mylkpd-mode-view .mylkpd-layer {
+    touch-action: auto;
+}
+
+.path-mod-mylkpd .mylkpd-mode-move .mylkpd-layer,
+.path-mod-mylkpd .mylkpd-mode-view .mylkpd-layer {
+    cursor: default;
+}
+
+.path-mod-mylkpd .mylkpd-mode-erase .mylkpd-layer {
+    cursor: cell;
+}
+
+.path-mod-mylkpd .mylkpd-svg,
+.path-mod-mylkpd .mylkpd-html {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.path-mod-mylkpd .mylkpd-html .mylkpd-item {
+    pointer-events: auto;
+}
+
+.path-mod-mylkpd .mylkpd-hit {
+    opacity: 0;
+    stroke-width: 16px !important;
+    pointer-events: none;
+}
+
+.path-mod-mylkpd .mylkpd-mode-move .mylkpd-hit-stroke,
+.path-mod-mylkpd .mylkpd-mode-erase .mylkpd-hit-stroke {
+    pointer-events: stroke;
+}
+
+.path-mod-mylkpd .mylkpd-hit-fill {
+    stroke-width: 0 !important;
+}
+
+.path-mod-mylkpd .mylkpd-mode-move .mylkpd-hit-fill,
+.path-mod-mylkpd .mylkpd-mode-erase .mylkpd-hit-fill {
+    pointer-events: fill;
+}
+
+.path-mod-mylkpd .mylkpd-mode-move .mylkpd-item {
+    cursor: move;
+}
+
+.path-mod-mylkpd .mylkpd-mode-erase .mylkpd-item {
+    cursor: cell;
+}
+
+.path-mod-mylkpd .mylkpd-mode-move .mylkpd-item:hover,
+.path-mod-mylkpd .mylkpd-mode-erase .mylkpd-item:hover {
+    filter: drop-shadow(0 0 2px rgba(0, 0, 0, .6));
+}
+
+/* Text answers */
+.path-mod-mylkpd .mylkpd-text {
+    position: absolute;
+    transform: translateY(-50%);
+}
+
+.path-mod-mylkpd .mylkpd-text textarea {
+    display: block;
+    min-width: 4ch;
+    max-width: 90cqw;
+    padding: 0 .2em;
+    font-family: inherit;
+    font-size: 1.7cqw;
+    line-height: 1.3;
+    background: rgba(255, 249, 196, .7);
+    border: 1px dashed;
+    border-radius: 2px;
+    resize: none;
+    overflow: hidden;
+}
+
+.path-mod-mylkpd .mylkpd-text textarea:focus {
+    outline: 2px solid currentColor;
+    border-style: solid;
+}
+
+.path-mod-mylkpd .mylkpd-mode-move .mylkpd-text textarea,
+.path-mod-mylkpd .mylkpd-mode-erase .mylkpd-text textarea {
+    pointer-events: none;
+}
+
+.path-mod-mylkpd .mylkpd-mode-view .mylkpd-text textarea {
+    background: rgba(255, 249, 196, .45);
+    border-color: transparent !important;
+}
+
+/* Tick and cross */
+.path-mod-mylkpd .mylkpd-mark {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font-size: 3cqw;
+    font-weight: bold;
+    line-height: 1;
+    user-select: none;
+}
+
+/* Buttons and grading */
+.path-mod-mylkpd .mylkpd-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    display: flex;
+    justify-content: flex-end;
+    gap: .5rem;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: .75rem 0;
+    background: #fff;
+    border-top: 1px solid #dee2e6;
+}
+
+.path-mod-mylkpd .mylkpd-gradebox {
+    max-width: 1000px;
+    margin: 1rem auto;
+}
+
+/* Group work: who is online */
+.path-mod-mylkpd .mylkpd-presence {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .4rem;
+    max-width: 1000px;
+    margin: -.5rem auto 1rem;
+    font-size: .875rem;
+}
+
+.path-mod-mylkpd .mylkpd-presence:empty {
+    display: none;
+}
+
+.path-mod-mylkpd .mylkpd-presence-label {
+    color: #6c757d;
+}
+
+.path-mod-mylkpd .mylkpd-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    padding: .1rem .55rem;
+    border: 1px solid #dee2e6;
+    border-radius: 1rem;
+    opacity: .45;
+}
+
+.path-mod-mylkpd .mylkpd-chip.mylkpd-online {
+    opacity: 1;
+}
+
+.path-mod-mylkpd .mylkpd-dot {
+    display: inline-block;
+    width: .6rem;
+    height: .6rem;
+    border-radius: 50%;
+}
+
+/* Edit mode: paragraphs of the .docx */
+.path-mod-mylkpd .mylkpd-work-edit .mylkpd-block {
+    position: relative;
+    border-radius: 2px;
+    outline: none;
+}
+
+.path-mod-mylkpd .mylkpd-work-edit:not(.mylkpd-mode-view) .mylkpd-block {
+    cursor: text;
+}
+
+.path-mod-mylkpd .mylkpd-work-edit:not(.mylkpd-mode-view) .mylkpd-block:hover {
+    background: rgba(26, 71, 184, .06);
+}
+
+.path-mod-mylkpd .mylkpd-work-edit .mylkpd-block:focus {
+    background: rgba(26, 71, 184, .08);
+    box-shadow: 0 0 0 2px rgba(26, 71, 184, .5);
+}
+
+.path-mod-mylkpd .mylkpd-work-edit .mylkpd-edited {
+    box-shadow: inset 3px 0 0 var(--mylkpd-peer, #1a47b8);
+}
+
+.path-mod-mylkpd .mylkpd-mode-view.mylkpd-work-edit .mylkpd-edited {
+    background: rgba(255, 249, 196, .55);
+}
+
+.path-mod-mylkpd .mylkpd-work-edit .mylkpd-block.mylkpd-locked {
+    background: rgba(0, 0, 0, .04);
+    box-shadow: 0 0 0 2px var(--mylkpd-peer, #666);
+    cursor: not-allowed;
+}
+
+.path-mod-mylkpd .mylkpd-work-edit .mylkpd-block.mylkpd-locked::after {
+    content: attr(data-mylkpd-editor);
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 3;
+    padding: 0 .4em;
+    font: 11px/1.6 sans-serif;
+    color: #fff;
+    white-space: nowrap;
+    background: var(--mylkpd-peer, #666);
+    border-radius: 2px;
+}
+
+.path-mod-mylkpd .mylkpd-groupinfo {
+    max-width: 1000px;
+    margin: 0 auto 1rem;
+}
+
+.path-mod-mylkpd .mylkpd-savestate {
+    align-self: center;
+    margin-right: auto;
+}
