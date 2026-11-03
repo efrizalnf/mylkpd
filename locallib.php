@@ -512,6 +512,39 @@ function mylkpd_can_reopen(stdClass $mylkpd, ?stdClass $submission): bool {
 }
 
 /**
+ * The active advanced grading controller (rubric, marking guide), if the teacher set one up.
+ *
+ * @param stdClass $mylkpd
+ * @param context_module $context
+ * @return gradingform_controller|null
+ */
+function mylkpd_grading_controller(stdClass $mylkpd, context_module $context) {
+    global $CFG;
+    if ($mylkpd->grade == 0) {
+        return null;
+    }
+    require_once($CFG->dirroot . '/grade/grading/lib.php');
+    $manager = get_grading_manager($context, 'mod_mylkpd', 'submissions');
+    if (!$method = $manager->get_active_method()) {
+        return null;
+    }
+    $controller = $manager->get_controller($method);
+    $controller->set_grade_range(make_grades_menu($mylkpd->grade), $mylkpd->grade > 0);
+    return $controller;
+}
+
+/**
+ * Link to Moodle's page where the teacher chooses and builds the rubric.
+ *
+ * @param context_module $context
+ * @return moodle_url
+ */
+function mylkpd_grading_manage_url(context_module $context): moodle_url {
+    return new moodle_url('/grade/grading/manage.php',
+        ['contextid' => $context->id, 'component' => 'mod_mylkpd', 'area' => 'submissions']);
+}
+
+/**
  * Formats a grade for display.
  *
  * @param stdClass $mylkpd
@@ -560,37 +593,44 @@ function mylkpd_toolbar_button(string $attr, string $value, string $icon, string
 }
 
 /**
- * Builds the editing toolbar (inspired by CKEditor): drawing tools, text formatting and inserts.
+ * Builds the editing toolbar (inspired by CKEditor): one sticky panel with grouped tools.
+ *
+ * Row 1: tools (type, move, draw...) | undo/redo.
+ * Row 2: text formatting (docx) | colour and thickness | inserts | help.
+ * Then a message line and, for group work, who is online.
  *
  * @param bool $cantype whether the document is a .docx shown in the browser (typing in paragraphs possible)
  * @param string $defaulttool
+ * @param string $teambar HTML for group work (presence and names toggle), or ''
  * @return string HTML
  */
-function mylkpd_render_toolbar(bool $cantype, string $defaulttool): string {
+function mylkpd_render_toolbar(bool $cantype, string $defaulttool, string $teambar = ''): string {
     $s = function($key) {
         return get_string($key, 'mod_mylkpd');
     };
+    $group = function(string $content, string $label, string $extra = '') {
+        return html_writer::div($content, trim('mylkpd-group ' . $extra), ['role' => 'group', 'aria-label' => $label]);
+    };
     $html = html_writer::start_div('mylkpd-toolbar', ['role' => 'toolbar', 'aria-label' => $s('toolbar')]);
 
-    // Row 1: tools.
-    $html .= html_writer::start_div('mylkpd-row');
+    // Row 1.
     $tools = [];
     if ($cantype) {
         $tools['type'] = '&#9000;';
     }
     $tools += ['move' => '&#10021;', 'text' => 'T', 'check' => '&#10003;', 'cross' => '&#10007;',
         'circle' => '&#9711;', 'highlight' => '&#9644;', 'line' => '&#9585;', 'pen' => '&#9998;', 'erase' => '&#9003;'];
-    $html .= html_writer::start_div('mylkpd-group');
+    $buttons = '';
     foreach ($tools as $tool => $icon) {
-        $html .= mylkpd_toolbar_button('tool', $tool, $icon, $s('tool' . $tool), true, $tool === $defaulttool);
+        $buttons .= mylkpd_toolbar_button('tool', $tool, $icon, $s('tool' . $tool), true, $tool === $defaulttool);
     }
-    $html .= html_writer::end_div();
+    $row1 = $group($buttons, $s('tools'), 'mylkpd-tools');
 
-    $html .= html_writer::start_div('mylkpd-group', ['aria-label' => $s('color')]);
     $names = ['colorblue', 'colorred', 'colorblack', 'colorgreen', 'coloryellow'];
+    $style = '';
     foreach (mylkpd_colors() as $i => $color) {
         $label = $s($names[$i]);
-        $html .= html_writer::tag('button', '', [
+        $style .= html_writer::tag('button', '', [
             'type' => 'button',
             'class' => 'mylkpd-swatch' . ($i === 0 ? ' active' : ''),
             'style' => 'background-color:' . $color,
@@ -600,43 +640,51 @@ function mylkpd_render_toolbar(bool $cantype, string $defaulttool): string {
             'title' => $label,
         ]);
     }
-    $html .= html_writer::select([2 => $s('widththin'), 4 => $s('widthmedium'), 8 => $s('widththick')],
+    $style .= html_writer::select([2 => $s('widththin'), 4 => $s('widthmedium'), 8 => $s('widththick')],
         'mylkpdwidth', 4, false, [
             'class' => 'custom-select form-select form-select-sm mylkpd-width',
             'data-mylkpd-width' => '1',
             'aria-label' => $s('width'),
             'title' => $s('width'),
         ]);
-    $html .= mylkpd_toolbar_button('action', 'undo', '&#8630;', $s('undo') . ' (Ctrl+Z)', false);
-    $html .= mylkpd_toolbar_button('action', 'redo', '&#8631;', $s('redo') . ' (Ctrl+Y)', false);
-    $html .= html_writer::end_div();
-    $html .= html_writer::end_div();
+    $row1 .= $group(
+        mylkpd_toolbar_button('action', 'undo', '&#8630;', $s('undo') . ' (Ctrl+Z)', false) .
+        mylkpd_toolbar_button('action', 'redo', '&#8631;', $s('redo') . ' (Ctrl+Y)', false),
+        $s('history'), 'mylkpd-history');
+    $html .= html_writer::div($row1, 'mylkpd-row');
 
-    // Row 2: text formatting (paragraphs) and inserts.
-    $html .= html_writer::start_div('mylkpd-row');
+    // Row 2.
+    $row2 = '';
     if ($cantype) {
-        $html .= html_writer::start_div('mylkpd-group mylkpd-formatgroup', ['aria-label' => $s('formatting')]);
         $formats = [
             'bold' => '<b>B</b>', 'italic' => '<i>I</i>', 'underline' => '<u>U</u>', 'strikeThrough' => '<s>S</s>',
             'superscript' => 'x&sup2;', 'subscript' => 'x&#8322;',
             'foreColor' => '<span class="mylkpd-a-color">A</span>', 'hiliteColor' => '<span class="mylkpd-a-mark">ab</span>',
             'removeFormat' => '&#10008;<small>T</small>',
         ];
+        $buttons = '';
         foreach ($formats as $cmd => $icon) {
-            $html .= mylkpd_toolbar_button('format', $cmd, $icon, $s('format' . strtolower($cmd)), false);
+            $buttons .= mylkpd_toolbar_button('format', $cmd, $icon, $s('format' . strtolower($cmd)), false);
         }
-        $html .= html_writer::end_div();
+        $row2 .= $group($buttons, $s('formatting'), 'mylkpd-formatgroup');
     }
-    $html .= html_writer::start_div('mylkpd-group', ['aria-label' => $s('insert')]);
-    $inserts = ['math' => '&#8721;', 'symbol' => '&#937;', 'arabic' => '&#1593;', 'link' => '&#128279;'];
-    foreach ($inserts as $what => $icon) {
-        $html .= mylkpd_toolbar_button('insert', $what, $icon, $s('insert' . $what));
+    $row2 .= $group($style, $s('color'), 'mylkpd-style');
+    $buttons = '';
+    foreach (['math' => '&#8721;', 'symbol' => '&#937;', 'arabic' => '&#1593;', 'link' => '&#128279;'] as $what => $icon) {
+        $buttons .= mylkpd_toolbar_button('insert', $what, $icon, $s('insert' . $what));
     }
-    $html .= html_writer::end_div();
-    $html .= html_writer::end_div();
+    $row2 .= $group($buttons, $s('insert'), 'mylkpd-inserts');
+    $row2 .= html_writer::tag('details',
+        html_writer::tag('summary', '&#9432; ' . $s('help'), ['class' => 'btn btn-sm btn-link']) .
+        html_writer::div($s($cantype ? 'toolhinttype' : 'toolhint'), 'mylkpd-help-text small'),
+        ['class' => 'mylkpd-help']);
+    $html .= html_writer::div($row2, 'mylkpd-row');
 
-    $html .= html_writer::div($s($cantype ? 'toolhinttype' : 'toolhint'), 'mylkpd-hint text-muted small',
-        ['data-mylkpd-hint' => 1]);
+    // Messages (where to click, what to do next).
+    $html .= html_writer::div('', 'mylkpd-hint small', ['data-mylkpd-hint' => 1, 'role' => 'status', 'aria-live' => 'polite']);
+    if ($teambar !== '') {
+        $html .= html_writer::div($teambar, 'mylkpd-row mylkpd-teamrow');
+    }
     $html .= html_writer::end_div();
     return $html;
 }
@@ -721,6 +769,7 @@ function mylkpd_render_worksheet(stdClass $mylkpd, $cm, context_module $context,
             'loaderror' => get_string('loaderror', 'mod_mylkpd'),
             'saving' => get_string('saving', 'mod_mylkpd'),
             'saved' => get_string('saved', 'mod_mylkpd'),
+            'savedat' => get_string('savedat', 'mod_mylkpd', '{time}'),
             'saveerror' => get_string('saveerror', 'mod_mylkpd'),
             'online' => get_string('online', 'mod_mylkpd'),
             'editing' => get_string('editing', 'mod_mylkpd', '{name}'),
@@ -749,17 +798,18 @@ function mylkpd_render_worksheet(stdClass $mylkpd, $cm, context_module $context,
     $PAGE->requires->js_init_code('MyLKPD.init(' . json_encode($config) . ');', true);
 
     $html = '';
-    if (!$readonly) {
-        $html .= mylkpd_render_toolbar($cantype, $defaulttool);
-    }
+    $toggle = '';
     if ($team) {
         $toggle = html_writer::tag('label',
             html_writer::empty_tag('input', ['type' => 'checkbox', 'checked' => 'checked', 'data-mylkpd-names' => 1,
                 'class' => 'form-check-input me-1 mr-1']) . get_string('shownames', 'mod_mylkpd'),
             ['class' => 'mylkpd-namestoggle small']);
-        $html .= html_writer::div(
-            ($readonly ? '' : html_writer::div('', 'mylkpd-presence', ['id' => 'mylkpd-presence', 'aria-live' => 'polite'])) .
-            $toggle, 'mylkpd-teambar');
+    }
+    if (!$readonly) {
+        $teambar = $team ? html_writer::div('', 'mylkpd-presence', ['id' => 'mylkpd-presence', 'aria-live' => 'polite']) . $toggle : '';
+        $html .= mylkpd_render_toolbar($cantype, $defaulttool, $teambar);
+    } else if ($team) {
+        $html .= html_writer::div($toggle, 'mylkpd-teambar');
     }
     $classes = 'mylkpd-container' . ($cantype ? ' mylkpd-work-edit' : '') . ' mylkpd-mode-' . ($readonly ? 'view' : $defaulttool);
     $html .= html_writer::div('', $classes, ['id' => 'mylkpd-container']);

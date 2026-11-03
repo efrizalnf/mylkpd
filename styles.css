@@ -1,31 +1,53 @@
 /* mod_mylkpd */
+
+/* Editing panel: one sticky card, tool groups separated by thin dividers. */
 .path-mod-mylkpd .mylkpd-toolbar {
     position: sticky;
-    top: 60px;
+    top: var(--mylkpd-sticky-top, 0px);
     z-index: 20;
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: .5rem 1rem;
+    flex-direction: column;
+    gap: .35rem;
     max-width: 1000px;
     margin: 0 auto 1rem;
-    padding: .5rem .75rem;
+    padding: .45rem .6rem;
     background: #fff;
     border: 1px solid #dee2e6;
     border-radius: .5rem;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .06);
+}
+
+.path-mod-mylkpd .mylkpd-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .35rem 0;
 }
 
 .path-mod-mylkpd .mylkpd-group {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: .25rem;
+    gap: .2rem;
+    padding: 0 .55rem;
+    border-left: 1px solid #e3e6ea;
+}
+
+.path-mod-mylkpd .mylkpd-group:first-child {
+    padding-left: 0;
+    border-left: 0;
+}
+
+.path-mod-mylkpd .mylkpd-history {
+    margin-left: auto;
 }
 
 .path-mod-mylkpd .mylkpd-toolbar .btn {
     display: inline-flex;
     align-items: center;
     gap: .3rem;
+    padding: .2rem .45rem;
+    line-height: 1.3;
 }
 
 .path-mod-mylkpd .mylkpd-icon {
@@ -36,8 +58,8 @@
 }
 
 .path-mod-mylkpd .mylkpd-swatch {
-    width: 1.6rem;
-    height: 1.6rem;
+    width: 1.45rem;
+    height: 1.45rem;
     padding: 0;
     border: 2px solid #fff;
     border-radius: 50%;
@@ -51,16 +73,81 @@
 
 .path-mod-mylkpd .mylkpd-width {
     width: auto;
-    margin-left: .25rem;
+    margin-left: .2rem;
+    padding-top: .15rem;
+    padding-bottom: .15rem;
+}
+
+.path-mod-mylkpd .mylkpd-help {
+    position: relative;
+    margin-left: auto;
+}
+
+.path-mod-mylkpd .mylkpd-help summary {
+    list-style: none;
+    cursor: pointer;
+}
+
+.path-mod-mylkpd .mylkpd-help summary::-webkit-details-marker {
+    display: none;
+}
+
+.path-mod-mylkpd .mylkpd-help-text {
+    position: absolute;
+    right: 0;
+    z-index: 25;
+    width: min(420px, 80vw);
+    padding: .5rem .75rem;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: .4rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, .12);
 }
 
 .path-mod-mylkpd .mylkpd-hint {
-    flex-basis: 100%;
+    padding: .1rem .3rem;
+    color: #0f5132;
+    background: #d1e7dd;
+    border-radius: .3rem;
+}
+
+.path-mod-mylkpd .mylkpd-hint.text-danger {
+    color: #842029 !important;
+    background: #f8d7da;
+}
+
+.path-mod-mylkpd .mylkpd-hint:empty {
+    display: none;
+}
+
+.path-mod-mylkpd .mylkpd-teamrow {
+    justify-content: space-between;
+    gap: .4rem 1rem;
+    padding-top: .35rem;
+    border-top: 1px solid #e3e6ea;
 }
 
 @media (max-width: 767.98px) {
     .path-mod-mylkpd .mylkpd-tool-label {
         display: none;
+    }
+
+    /* Keep each row on one line and let it scroll sideways on phones. */
+    .path-mod-mylkpd .mylkpd-row {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: thin;
+    }
+
+    .path-mod-mylkpd .mylkpd-group {
+        flex-wrap: nowrap;
+    }
+
+    .path-mod-mylkpd .mylkpd-help-text {
+        position: fixed;
+        right: .5rem;
+        left: .5rem;
+        width: auto;
     }
 }
 
@@ -222,19 +309,72 @@
     user-select: none;
 }
 
-/* Buttons and grading */
+/* Bottom action bar: save state on the left, buttons on the right (also used for "Edit again"). */
 .path-mod-mylkpd .mylkpd-actions {
     position: sticky;
     bottom: 0;
     z-index: 20;
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-end;
     gap: .5rem;
     max-width: 1000px;
-    margin: 0 auto;
-    padding: .75rem 0;
+    margin: 1rem auto 0;
+    padding: .65rem .75rem;
     background: #fff;
-    border-top: 1px solid #dee2e6;
+    border: 1px solid #dee2e6;
+    border-radius: .5rem .5rem 0 0;
+    box-shadow: 0 -2px 6px rgba(0, 0, 0, .06);
+}
+
+.path-mod-mylkpd .mylkpd-actions .mylkpd-savestate {
+    margin-right: auto;
+}
+
+.path-mod-mylkpd .mylkpd-state-saving {
+    color: #6c757d;
+}
+
+.path-mod-mylkpd .mylkpd-state-saved {
+    color: #198754;
+}
+
+.path-mod-mylkpd .mylkpd-state-saved::before {
+    content: "\2713\00A0";
+}
+
+.path-mod-mylkpd .mylkpd-state-saveerror {
+    color: #dc3545;
+    font-weight: 600;
+}
+
+/* Status card at the top for students */
+.path-mod-mylkpd .mylkpd-statuscard {
+    max-width: 1000px;
+    margin: 0 auto 1rem;
+    padding: .75rem 1rem;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: .5rem;
+}
+
+.path-mod-mylkpd .mylkpd-status-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem;
+}
+
+.path-mod-mylkpd .mylkpd-statuscard .mylkpd-groupinfo,
+.path-mod-mylkpd .mylkpd-statuscard .mylkpd-grade,
+.path-mod-mylkpd .mylkpd-statuscard .mylkpd-feedback,
+.path-mod-mylkpd .mylkpd-statuscard .mylkpd-rubricresult {
+    margin-top: .5rem;
+}
+
+.path-mod-mylkpd .mylkpd-rubricresult {
+    overflow-x: auto;
 }
 
 .path-mod-mylkpd .mylkpd-gradebox {
@@ -345,15 +485,9 @@
     border-radius: 2px;
 }
 
-.path-mod-mylkpd .mylkpd-groupinfo {
-    max-width: 1000px;
-    margin: 0 auto 1rem;
-}
 
-.path-mod-mylkpd .mylkpd-savestate {
-    align-self: center;
-    margin-right: auto;
-}
+
+
 
 /* Author names (group work) */
 .path-mod-mylkpd .mylkpd-namelabel {
@@ -418,14 +552,6 @@
     align-items: center;
 }
 
-/* Toolbar rows */
-.path-mod-mylkpd .mylkpd-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: .4rem 1rem;
-    width: 100%;
-}
 
 .path-mod-mylkpd .mylkpd-toolbar .btn:disabled {
     opacity: .4;

@@ -27,6 +27,15 @@ $PAGE->navbar->add(get_string('submissions', 'mod_mylkpd'));
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('submissions', 'mod_mylkpd'), 3);
 
+if ($mylkpd->grade != 0 && has_capability('moodle/grade:managegradingforms', $context)) {
+    $haverubric = (bool) mylkpd_grading_controller($mylkpd, $context);
+    echo html_writer::div(
+        html_writer::span(get_string($haverubric ? 'rubricactive' : 'rubricsetuphint', 'mod_mylkpd'), 'small text-muted') . ' ' .
+        html_writer::link(mylkpd_grading_manage_url($context),
+            get_string($haverubric ? 'rubricedit' : 'rubricsetup', 'mod_mylkpd'), ['class' => 'btn btn-sm btn-outline-primary']),
+        'mylkpd-rubricbar mb-3');
+}
+
 $table = new html_table();
 $table->attributes['class'] = 'generaltable table-hover';
 $fmt = get_string('strftimedatetimeshort', 'langconfig');

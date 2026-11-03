@@ -29,6 +29,7 @@ function mylkpd_supports($feature) {
         case FEATURE_COMPLETION_TRACKS_VIEWS:
         case FEATURE_GROUPS:
         case FEATURE_GROUPINGS:
+        case FEATURE_ADVANCED_GRADING:
             return true;
         case FEATURE_BACKUP_MOODLE2:
             return false;
@@ -37,6 +38,15 @@ function mylkpd_supports($feature) {
         default:
             return null;
     }
+}
+
+/**
+ * Areas that can use advanced grading methods (rubrics, marking guides).
+ *
+ * @return array
+ */
+function mylkpd_grading_areas_list() {
+    return ['submissions' => get_string('gradingarea', 'mod_mylkpd')];
 }
 
 /**

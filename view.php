@@ -81,50 +81,54 @@ if ($cangrade) {
 
 if ($nogroup) {
     echo $OUTPUT->notification(get_string('nogroup', 'mod_mylkpd'), \core\output\notification::NOTIFY_WARNING);
-} else if ($cansubmit && $team) {
-    $members = mylkpd_members($memberids);
-    echo html_writer::tag('p', get_string('yourgroup', 'mod_mylkpd', (object) [
-        'group' => format_string(groups_get_group_name($groupid)),
-        'members' => implode(', ', array_column($members, 'name')),
-    ]), ['class' => 'mylkpd-groupinfo']);
 }
 
-if ($issubmitted) {
-    $key = $team ? 'groupsubmittedinfo' : 'submittedinfo';
-    $a = $team ? (object) ['time' => userdate($submission->timemodified),
-        'name' => fullname(core_user::get_user($submission->userid))] : userdate($submission->timemodified);
-    // The button is printed outside the notification: notifications are cleaned with HTMLPurifier,
-    // which removes form elements.
-    echo $OUTPUT->notification(get_string($key, 'mod_mylkpd', $a), \core\output\notification::NOTIFY_INFO, false);
-    if (mylkpd_can_reopen($mylkpd, $submission)) {
-        $confirm = get_string($team ? 'editagainconfirmgroup' : 'editagainconfirm', 'mod_mylkpd');
-        echo html_writer::start_tag('form', ['method' => 'post', 'action' => $PAGE->url->out(false),
-            'class' => 'mylkpd-reopen mb-3', 'data-mylkpd-confirm' => $confirm]);
-        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
-        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'reopen', 'value' => 1]);
-        echo html_writer::tag('button', '&#9998; ' . get_string('editagain', 'mod_mylkpd'),
-            ['type' => 'submit', 'class' => 'btn btn-primary']);
-        echo html_writer::span(get_string('editagainhint', 'mod_mylkpd'), 'text-muted small');
-        echo html_writer::end_tag('form');
-        $PAGE->requires->js_init_code("document.querySelectorAll('form[data-mylkpd-confirm]').forEach(function(f) {
-            f.addEventListener('submit', function(e) {
-                if (!window.confirm(f.getAttribute('data-mylkpd-confirm'))) { e.preventDefault(); }
-            });
-        });", true);
+// Status card: where the student stands, the grade, feedback and the filled-in rubric.
+if ($cansubmit && !$nogroup) {
+    if ($issubmitted) {
+        $badge = html_writer::span(get_string('statussubmitted', 'mod_mylkpd'), 'badge bg-success badge-success');
+        $a = (object) ['time' => userdate($submission->timemodified),
+            'name' => fullname(core_user::get_user($submission->userid))];
+        $info = get_string($team ? 'groupsubmittedinfo' : 'submittedinfo', 'mod_mylkpd', $team ? $a : $a->time);
     } else {
-        $reason = ((int) ($mylkpd->allowresubmit ?? 1) === 0) ? 'cannotreopensetting' : 'cannotreopengraded';
-        echo html_writer::div(get_string($reason, 'mod_mylkpd'), 'mylkpd-reopen-reason text-muted small mb-3');
+        $badge = html_writer::span(get_string($submission ? 'statusdraft' : 'statusnotstarted', 'mod_mylkpd'),
+            'badge bg-warning text-dark badge-warning');
+        $info = get_string('draftinfo', 'mod_mylkpd');
     }
-    if ($submission->grade !== null || !empty($submission->feedback)) {
-        $out = html_writer::tag('strong', get_string('yourgrade', 'mod_mylkpd') . ': ')
-            . s(mylkpd_display_grade($mylkpd, $submission->grade));
+    $card = html_writer::div($badge . html_writer::span($info, 'mylkpd-status-text'), 'mylkpd-status-line');
+    if ($team) {
+        $members = mylkpd_members($memberids);
+        $card .= html_writer::div(get_string('yourgroup', 'mod_mylkpd', (object) [
+            'group' => format_string(groups_get_group_name($groupid)),
+            'members' => implode(', ', array_column($members, 'name')),
+        ]), 'mylkpd-groupinfo small text-muted');
+    }
+    if ($submission && ($submission->grade !== null || !empty($submission->feedback))) {
+        $card .= html_writer::div(html_writer::tag('strong', get_string('yourgrade', 'mod_mylkpd') . ': ') .
+            s(mylkpd_display_grade($mylkpd, $submission->grade)), 'mylkpd-grade');
         if (!empty($submission->feedback)) {
-            $out .= html_writer::div(html_writer::tag('strong', get_string('feedback', 'mod_mylkpd') . ': ')
-                . nl2br(s($submission->feedback)), 'mt-2');
+            $card .= html_writer::div(html_writer::tag('strong', get_string('feedback', 'mod_mylkpd') . ': ') .
+                nl2br(s($submission->feedback)), 'mylkpd-feedback');
         }
-        echo $OUTPUT->box($out, 'generalbox mylkpd-result mb-3');
+        // Show the rubric with the levels the teacher chose.
+        if ($submission->grade !== null && ($controller = mylkpd_grading_controller($mylkpd, $context))) {
+            try {
+                require_once($CFG->libdir . '/gradelib.php');
+                $gradeinfo = grade_get_grades($course->id, 'mod', 'mylkpd', $mylkpd->id, $USER->id);
+                $gradeitem = $gradeinfo->items[0] ?? null;
+                if ($gradeitem && $controller->is_form_available()) {
+                    $card .= html_writer::div($controller->render_grade($PAGE, $submission->id, $gradeitem, '', false),
+                        'mylkpd-rubricresult');
+                }
+            } catch (\Throwable $e) {
+                debugging('MyLKPD rubric display: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            }
+        }
     }
+    echo html_writer::div($card, 'mylkpd-statuscard');
 }
+
+$canreopen = $issubmitted && mylkpd_can_reopen($mylkpd, $submission);
 
 if (!$readonly && $worksheet['ready']) {
     echo html_writer::start_tag('form', ['method' => 'post', 'action' => $PAGE->url->out(false), 'id' => 'mylkpd-form']);
@@ -133,15 +137,42 @@ if (!$readonly && $worksheet['ready']) {
         'id' => 'mylkpd-submitfinal']);
     echo $worksheet['html'];
     echo html_writer::start_div('mylkpd-actions');
-    echo html_writer::span('', 'mylkpd-savestate text-muted small', ['id' => 'mylkpd-savestate', 'aria-live' => 'polite']);
-    echo html_writer::tag('button', get_string('savenow', 'mod_mylkpd'),
+    echo html_writer::span('', 'mylkpd-savestate small', ['id' => 'mylkpd-savestate', 'role' => 'status',
+        'aria-live' => 'polite']);
+    echo html_writer::tag('button', '&#128190; ' . get_string('savenow', 'mod_mylkpd'),
         ['type' => 'button', 'class' => 'btn btn-secondary', 'data-mylkpd-action' => 'save']);
-    echo html_writer::tag('button', get_string('submitfinal', 'mod_mylkpd'),
+    echo html_writer::tag('button', '&#10148; ' . get_string('submitfinal', 'mod_mylkpd'),
         ['type' => 'button', 'class' => 'btn btn-primary', 'data-mylkpd-action' => 'submit']);
     echo html_writer::end_div();
     echo html_writer::end_tag('form');
 } else {
     echo $worksheet['html'];
+    if ($issubmitted) {
+        // Same place as the submit button: the bottom action bar.
+        echo html_writer::start_tag('form', ['method' => 'post', 'action' => $PAGE->url->out(false),
+            'class' => 'mylkpd-actions mylkpd-reopen',
+            'data-mylkpd-confirm' => get_string($team ? 'editagainconfirmgroup' : 'editagainconfirm', 'mod_mylkpd')]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'reopen', 'value' => 1]);
+        if ($canreopen) {
+            echo html_writer::span(get_string('editagainhint', 'mod_mylkpd'), 'mylkpd-savestate small text-muted');
+            echo html_writer::tag('button', '&#9998; ' . get_string('editagain', 'mod_mylkpd'),
+                ['type' => 'submit', 'class' => 'btn btn-primary']);
+        } else {
+            $reason = ((int) ($mylkpd->allowresubmit ?? 1) === 0) ? 'cannotreopensetting' : 'cannotreopengraded';
+            echo html_writer::span(get_string($reason, 'mod_mylkpd'), 'mylkpd-savestate small text-muted');
+            echo html_writer::tag('button', '&#128274; ' . get_string('editagain', 'mod_mylkpd'),
+                ['type' => 'button', 'class' => 'btn btn-outline-secondary', 'disabled' => 'disabled']);
+        }
+        echo html_writer::end_tag('form');
+        if ($canreopen) {
+            $PAGE->requires->js_init_code("document.querySelectorAll('form[data-mylkpd-confirm]').forEach(function(f) {
+                f.addEventListener('submit', function(e) {
+                    if (!window.confirm(f.getAttribute('data-mylkpd-confirm'))) { e.preventDefault(); }
+                });
+            });", true);
+        }
+    }
 }
 
 echo $OUTPUT->footer();

@@ -42,6 +42,7 @@ class provider implements
             'block' => 'privacy:metadata:mylkpd_presence:block',
             'timeseen' => 'privacy:metadata:mylkpd_presence:timeseen',
         ], 'privacy:metadata:mylkpd_presence');
+        $collection->add_subsystem_link('core_grading', [], 'privacy:metadata:core_grading');
         return $collection;
     }
 
@@ -121,7 +122,9 @@ class provider implements
                 $data->grade = $sub->grade;
                 $data->feedback = $sub->feedback;
                 $data->timemodified = transform::datetime($sub->timemodified);
-                writer::with_context($context)->export_data([get_string('submissions', 'mod_mylkpd'), $sub->id], $data);
+                $path = [get_string('submissions', 'mod_mylkpd'), $sub->id];
+                writer::with_context($context)->export_data($path, $data);
+                \core_grading\privacy\provider::export_item_data($context, (int) $sub->id, $path);
             }
         }
     }
@@ -137,6 +140,7 @@ class provider implements
             return;
         }
         if ($cm = get_coursemodule_from_id('mylkpd', $context->instanceid)) {
+            \core_grading\privacy\provider::delete_instance_data($context);
             $DB->delete_records_select('mylkpd_presence',
                 'submissionid IN (SELECT id FROM {mylkpd_submissions} WHERE mylkpdid = ?)', [$cm->instance]);
             $DB->delete_records('mylkpd_submissions', ['mylkpdid' => $cm->instance]);
@@ -160,6 +164,11 @@ class provider implements
                 $DB->delete_records_select('mylkpd_presence',
                     'userid = ? AND submissionid IN (SELECT id FROM {mylkpd_submissions} WHERE mylkpdid = ?)',
                     [$userid, $cm->instance]);
+                $own = $DB->get_records('mylkpd_submissions', ['mylkpdid' => $cm->instance, 'userid' => $userid,
+                    'groupid' => 0], '', 'id');
+                foreach ($own as $sub) {
+                    \core_grading\privacy\provider::delete_instance_data($context, (int) $sub->id);
+                }
                 $DB->delete_records('mylkpd_submissions', ['mylkpdid' => $cm->instance, 'userid' => $userid,
                     'groupid' => 0]);
             }
@@ -180,6 +189,11 @@ class provider implements
         if ($cm = get_coursemodule_from_id('mylkpd', $context->instanceid)) {
             [$insql, $params] = $DB->get_in_or_equal($userlist->get_userids(), SQL_PARAMS_NAMED);
             $params['mylkpdid'] = $cm->instance;
+            $own = $DB->get_records_select('mylkpd_submissions', "mylkpdid = :mylkpdid AND groupid = 0 AND userid $insql",
+                $params, '', 'id');
+            foreach ($own as $sub) {
+                \core_grading\privacy\provider::delete_instance_data($context, (int) $sub->id);
+            }
             $DB->delete_records_select('mylkpd_submissions', "mylkpdid = :mylkpdid AND groupid = 0 AND userid $insql",
                 $params);
             $DB->delete_records_select('mylkpd_presence', "userid $insql AND submissionid IN

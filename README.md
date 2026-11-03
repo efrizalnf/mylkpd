@@ -1,5 +1,7 @@
 # MyLKPD (mod_mylkpd) — LKPD Interaktif untuk Moodle
 
+Versi 1.0.1 (beta) · Moodle 4.1+
+
 Plugin aktivitas Moodle (4.1+). Guru cukup mengunggah LKPD (PDF atau Word), siswa mengerjakan
 langsung di atas halaman LKPD, lalu guru menilai dari Moodle. Nilai otomatis masuk Gradebook.
 
@@ -24,9 +26,19 @@ supaya posisi jawaban siswa tidak bergeser. Mode direset hanya jika guru menggan
   Tombol Enter membuat baris baru di paragraf yang sama; tempel (paste) selalu sebagai teks biasa.
   Hanya paragraf yang diubah yang disimpan (dibersihkan dengan HTMLPurifier Moodle).
 
+## Penilaian dengan rubrik
+MyLKPD mendukung *Advanced grading* Moodle (rubrik dan panduan penilaian), sama seperti Assignment.
+1. Di halaman **Jawaban siswa** klik **Atur rubrik** (atau Pengaturan aktivitas > Nilai >
+   Metode penilaian: *Rubrik*).
+2. Buat kriteria dan level beserta poinnya dengan editor rubrik Moodle, lalu simpan sebagai siap pakai.
+3. Saat menilai, guru mengklik level di setiap kriteria. Nilai dihitung otomatis sesuai nilai maksimum
+   aktivitas dan masuk ke Gradebook (untuk kerja kelompok: ke semua anggota).
+4. Siswa melihat rubrik beserta level yang dipilih guru di kartu status LKPD.
+Tanpa rubrik, guru tetap bisa mengisi nilai langsung.
+
 ## Edit setelah dikumpulkan
 Pengaturan "Edit setelah dikumpulkan": *Ya, sampai dinilai guru* (bawaan), *Ya, kapan saja*, atau *Tidak*.
-Jika diizinkan, siswa melihat tombol **Edit lagi** di bawah keterangan "sudah dikumpulkan": LKPD kembali menjadi draf, lalu dikumpulkan ulang.
+Jika diizinkan, siswa melihat tombol **Edit lagi** di bilah aksi bawah (tempat tombol Kumpulkan): LKPD kembali menjadi draf, lalu dikumpulkan ulang.
 Pada kerja kelompok, Edit lagi membuka LKPD untuk seluruh kelompok. Guru selalu bisa membuka kembali
 lewat halaman penilaian.
 
@@ -38,6 +50,8 @@ lewat halaman penilaian.
   sementara dengan label "<nama> sedang mengetik", jadi tidak saling menimpa.
 - Urungkan (Undo) hanya membatalkan perubahan milik sendiri.
 - Satu anggota menekan "Kumpulkan", LKPD terkunci untuk seluruh kelompok.
+- Bilah bawah: status penyimpanan ("Tersimpan pukul 10:32", atau pesan gagal beserta alasannya),
+  tombol **Simpan sekarang** dan **Kumpulkan LKPD**.
 - **Nama penulis** tampil sebagai label berwarna di setiap jawaban dan paragraf yang diedit
   (bisa disembunyikan dengan "Tampilkan nama penulis"). Juga tampil di halaman penilaian guru.
 - Guru menilai per kelompok (nilai masuk ke semua anggota) dan melihat tabel **Kontribusi**
@@ -46,10 +60,11 @@ lewat halaman penilaian.
 - "Cara mengerjakan" dan "Kerja kelompok" terkunci setelah ada siswa yang mulai mengerjakan.
 
 ## Toolbar (referensi CKEditor)
+Satu panel yang menempel di atas saat halaman digulir (menyesuaikan tema Boost/Classic).
 Baris 1 (alat): **Ketik** (khusus DOCX), Pindah, Teks, Centang, Silang, Lingkari, Stabilo, Garis, Pensil,
-Penghapus, 5 warna, 3 ketebalan, Urungkan/Ulangi.
+Penghapus | Urungkan/Ulangi.
 Baris 2: format teks paragraf (khusus DOCX): Tebal, Miring, Garis bawah, Coret, Pangkat, Indeks,
-Warna teks, Stabilo teks, Hapus format. Sisipkan: **Persamaan** (LaTeX dengan palet template dan
+Warna teks, Stabilo teks, Hapus format | 5 warna, 3 ketebalan | Sisipkan: **Persamaan** (LaTeX dengan palet template dan
 pratinjau, dirender KaTeX), **Simbol** (±, ×, √, π, °, panah, huruf Yunani, dll.), **Arab** (keyboard
 huruf hijaiyah + harakat + angka Arab), **Tautan**.
 

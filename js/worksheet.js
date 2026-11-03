@@ -200,6 +200,7 @@ var MyLKPD = (function() {
         var saveTimer = null;
         var currentBlock = '';
         var failed = false;
+        var lastError = '';
         var stateEl = document.getElementById('mylkpd-savestate');
         var presenceEl = document.getElementById('mylkpd-presence');
 
@@ -219,10 +220,20 @@ var MyLKPD = (function() {
         }
 
         function setState(key) {
-            if (stateEl) {
-                stateEl.textContent = key ? cfg.strings[key] : '';
-                stateEl.classList.toggle('text-danger', key === 'saveerror');
+            if (!stateEl) {
+                return;
             }
+            var text = key ? cfg.strings[key] : '';
+            if (key === 'saved') {
+                var now = new Date();
+                var hm = ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2);
+                text = cfg.strings.savedat.replace('{time}', hm);
+            }
+            if (key === 'saveerror' && lastError) {
+                text += ' (' + lastError + ')';
+            }
+            stateEl.textContent = text;
+            stateEl.className = 'mylkpd-savestate small mylkpd-state-' + (key || 'none');
         }
 
         // ------------------------------------------------ Equations.
@@ -409,8 +420,9 @@ var MyLKPD = (function() {
                     throw new Error((res && (res.error || res.message)) || 'Sync failed');
                 }
                 failed = false;
+                lastError = '';
                 applyRemote(res);
-                if (ops.length || stateEl && stateEl.classList.contains('text-danger')) {
+                if (ops.length || (stateEl && stateEl.classList.contains('mylkpd-state-saveerror'))) {
                     setState('saved');
                 }
                 if (res.status === 1) {
@@ -421,6 +433,7 @@ var MyLKPD = (function() {
             }).catch(function(err) {
                 outbox = ops.concat(outbox);
                 failed = true;
+                lastError = (err && err.message) ? String(err.message).slice(0, 120) : '';
                 setState('saveerror');
                 window.console.error('MyLKPD sync:', err);
             }).then(function() {
@@ -1246,7 +1259,7 @@ var MyLKPD = (function() {
             setTimeout(function() {
                 hintEl.classList.remove('text-danger');
                 hintEl.textContent = (tool === 'math' || tool === 'link') ? cfg.strings.clicktoplace : hintText;
-            }, 2500);
+            }, 3500);
         }
 
         function isTarget(el) {
@@ -1745,7 +1758,22 @@ var MyLKPD = (function() {
             });
         }
 
+        function stickyOffset() {
+            var page = document.getElementById('page');
+            var overflow = page ? window.getComputedStyle(page).overflowY : '';
+            var top = 0;
+            if (overflow !== 'auto' && overflow !== 'scroll') {
+                var nav = document.querySelector('nav.fixed-top, .navbar.fixed-top');
+                if (nav) {
+                    top = Math.round(nav.getBoundingClientRect().height);
+                }
+            }
+            document.documentElement.style.setProperty('--mylkpd-sticky-top', top + 'px');
+        }
+
         if (!readonly) {
+            stickyOffset();
+            window.addEventListener('resize', stickyOffset);
             Array.prototype.forEach.call(document.querySelectorAll('[data-mylkpd-tool]'), function(b) {
                 b.addEventListener('click', function() {
                     setTool(b.getAttribute('data-mylkpd-tool'));
@@ -1830,7 +1858,20 @@ var MyLKPD = (function() {
                     if (document.activeElement && document.activeElement.blur) {
                         document.activeElement.blur();
                     }
-                    flush().then(flush);
+                    saveBtn.disabled = true;
+                    setState('saving');
+                    // Wait for any request in progress, then send everything that is left.
+                    flush().then(function() {
+                        return flush();
+                    }).then(function() {
+                        saveBtn.disabled = false;
+                        if (failed || hasPending()) {
+                            setState('saveerror');
+                            window.alert(cfg.strings.saveerror + (lastError ? '\n\n' + lastError : ''));
+                        } else {
+                            setState('saved');
+                        }
+                    });
                 });
             }
             var submitBtn = document.querySelector('[data-mylkpd-action="submit"]');
@@ -1846,7 +1887,8 @@ var MyLKPD = (function() {
                     flush().then(flush).then(function() {
                         if (failed || hasPending()) {
                             submitBtn.disabled = false;
-                            window.alert(cfg.strings.saveerror);
+                            setState('saveerror');
+                            window.alert(cfg.strings.saveerror + (lastError ? '\n\n' + lastError : ''));
                             return;
                         }
                         window.removeEventListener('beforeunload', warnUnsaved);

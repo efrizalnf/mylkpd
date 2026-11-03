@@ -40,6 +40,31 @@ if ($team) {
     $urlparams = ['id' => $cm->id, 'userid' => $userid];
 }
 $submission = $DB->get_record('mylkpd_submissions', $params);
+$controller = mylkpd_grading_controller($mylkpd, $context);
+if ($controller && !$submission) {
+    // A rubric needs an item to attach to, so make an (empty) submission record.
+    $now = time();
+    $submission = (object) ($params + [
+        'userid' => $userid,
+        'answers' => '{"items":{},"blocks":{}}',
+        'status' => MYLKPD_STATUS_DRAFT,
+        'revision' => 0,
+        'timecreated' => $now,
+        'timemodified' => $now,
+        'timegraded' => 0,
+    ]);
+    $submission->id = $DB->insert_record('mylkpd_submissions', $submission);
+}
+$gradinginstance = null;
+$rubricwarning = '';
+if ($controller) {
+    if ($controller->is_form_available()) {
+        $instanceid = optional_param('advancedgradinginstanceid', 0, PARAM_INT);
+        $gradinginstance = $controller->get_or_create_instance($instanceid, $USER->id, $submission->id);
+    } else {
+        $rubricwarning = $controller->form_unavailable_notification();
+    }
+}
 $memberids = mylkpd_member_ids($mylkpd, $groupid, $userid);
 
 $PAGE->set_url('/mod/mylkpd/grade.php', $urlparams);
@@ -49,7 +74,7 @@ $returnurl = new moodle_url('/mod/mylkpd/submissions.php', ['id' => $cm->id]);
 $PAGE->navbar->add(get_string('submissions', 'mod_mylkpd'), $returnurl);
 $PAGE->navbar->add($title);
 
-$form = new \mod_mylkpd\form\grade_form($PAGE->url, ['mylkpd' => $mylkpd]);
+$form = new \mod_mylkpd\form\grade_form($PAGE->url, ['mylkpd' => $mylkpd, 'gradinginstance' => $gradinginstance]);
 $form->set_data($urlparams + [
     'grade' => $submission->grade ?? null,
     'feedback' => $submission->feedback ?? '',
@@ -61,7 +86,12 @@ if ($form->is_cancelled()) {
 
 if ($data = $form->get_data()) {
     $grade = null;
-    if ($mylkpd->grade > 0 && isset($data->grade) && $data->grade !== '') {
+    if ($gradinginstance) {
+        $grade = $gradinginstance->submit_and_get_grade($data->advancedgrading, $submission->id);
+        if ($grade === null || $grade < 0) {
+            $grade = null;
+        }
+    } else if ($mylkpd->grade > 0 && isset($data->grade) && $data->grade !== '') {
         $grade = (float) $data->grade;
     } else if ($mylkpd->grade < 0 && !empty($data->grade)) {
         $grade = (int) $data->grade;
@@ -124,6 +154,15 @@ if ($team) {
 
 echo $worksheet['html'];
 echo $OUTPUT->box_start('generalbox mylkpd-gradebox');
+echo $OUTPUT->heading(get_string('grading', 'mod_mylkpd'), 4);
+if ($rubricwarning) {
+    echo $OUTPUT->notification($rubricwarning, \core\output\notification::NOTIFY_WARNING);
+}
+if (!$controller && $mylkpd->grade != 0 && has_capability('moodle/grade:managegradingforms', $context)) {
+    echo html_writer::div(get_string('rubricsetuphint', 'mod_mylkpd') . ' ' .
+        html_writer::link(mylkpd_grading_manage_url($context), get_string('rubricsetup', 'mod_mylkpd')),
+        'mylkpd-rubrichint small text-muted mb-2');
+}
 $form->display();
 echo $OUTPUT->box_end();
 echo $OUTPUT->footer();
