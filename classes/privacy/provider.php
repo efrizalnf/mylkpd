@@ -125,6 +125,7 @@ class provider implements
                 $path = [get_string('submissions', 'mod_mylkpd'), $sub->id];
                 writer::with_context($context)->export_data($path, $data);
                 \core_grading\privacy\provider::export_item_data($context, (int) $sub->id, $path);
+                writer::with_context($context)->export_area_files($path, 'mod_mylkpd', 'answerimage', $sub->id);
             }
         }
     }
@@ -141,6 +142,7 @@ class provider implements
         }
         if ($cm = get_coursemodule_from_id('mylkpd', $context->instanceid)) {
             \core_grading\privacy\provider::delete_instance_data($context);
+            get_file_storage()->delete_area_files($context->id, 'mod_mylkpd', 'answerimage');
             $DB->delete_records_select('mylkpd_presence',
                 'submissionid IN (SELECT id FROM {mylkpd_submissions} WHERE mylkpdid = ?)', [$cm->instance]);
             $DB->delete_records('mylkpd_submissions', ['mylkpdid' => $cm->instance]);
@@ -168,6 +170,7 @@ class provider implements
                     'groupid' => 0], '', 'id');
                 foreach ($own as $sub) {
                     \core_grading\privacy\provider::delete_instance_data($context, (int) $sub->id);
+                    get_file_storage()->delete_area_files($context->id, 'mod_mylkpd', 'answerimage', $sub->id);
                 }
                 $DB->delete_records('mylkpd_submissions', ['mylkpdid' => $cm->instance, 'userid' => $userid,
                     'groupid' => 0]);
@@ -193,6 +196,7 @@ class provider implements
                 $params, '', 'id');
             foreach ($own as $sub) {
                 \core_grading\privacy\provider::delete_instance_data($context, (int) $sub->id);
+                get_file_storage()->delete_area_files($context->id, 'mod_mylkpd', 'answerimage', $sub->id);
             }
             $DB->delete_records_select('mylkpd_submissions', "mylkpdid = :mylkpdid AND groupid = 0 AND userid $insql",
                 $params);

@@ -42,6 +42,7 @@ if ($cansubmit && !$nogroup && data_submitted() && confirm_sesskey() && optional
     $submission->userid = $USER->id;
     $submission->timemodified = time();
     $DB->update_record('mylkpd_submissions', $submission);
+    mylkpd_cleanup_images($context, $submission);
     redirect($PAGE->url, get_string('submitted', 'mod_mylkpd'), null, \core\output\notification::NOTIFY_SUCCESS);
 }
 

@@ -201,6 +201,8 @@ var MyLKPD = (function() {
         var currentBlock = '';
         var failed = false;
         var lastError = '';
+        var submissionId = cfg.submissionId || 0;
+        var imageBase = (cfg.imageBase || '').replace(/\/0\/x$/, '');
         var stateEl = document.getElementById('mylkpd-savestate');
         var presenceEl = document.getElementById('mylkpd-presence');
 
@@ -703,9 +705,13 @@ var MyLKPD = (function() {
                 updateLabel(item);
             }
             if (item.type === 'text' || item.type === 'check' || item.type === 'cross' ||
-                    item.type === 'math' || item.type === 'link') {
+                    item.type === 'math' || item.type === 'link' || item.type === 'image') {
                 el.style.left = item.x + '%';
                 el.style.top = item.y + '%';
+                if (item.type === 'image') {
+                    el.style.width = item.w + '%';
+                    el.style.height = item.h + '%';
+                }
                 return;
             }
             while (el.firstChild) {
@@ -772,6 +778,21 @@ var MyLKPD = (function() {
             var el;
             if (item.type === 'text') {
                 el = createText(item);
+            } else if (item.type === 'image') {
+                el = document.createElement('div');
+                el.className = 'mylkpd-item mylkpd-imageitem';
+                var img = document.createElement('img');
+                img.src = imageUrl(item.file);
+                img.alt = cfg.strings.image;
+                img.draggable = false;
+                el.appendChild(img);
+                if (!readonly) {
+                    var handle = document.createElement('span');
+                    handle.className = 'mylkpd-resize';
+                    handle.title = cfg.strings.resize;
+                    handle.setAttribute('aria-hidden', 'true');
+                    el.appendChild(handle);
+                }
             } else if (item.type === 'math') {
                 el = document.createElement('div');
                 el.className = 'mylkpd-item mylkpd-mathitem';
@@ -906,6 +927,25 @@ var MyLKPD = (function() {
                 var targetEl = closestItem(e.target);
                 var targetItem = targetEl ? owners.get(targetEl) : null;
 
+                if (e.target.classList && e.target.classList.contains('mylkpd-resize') && targetItem) {
+                    // Resize from the bottom-right corner, keeping the picture's proportions.
+                    e.preventDefault();
+                    e.stopPropagation();
+                    selectItem(targetItem);
+                    state = {mode: 'resize', item: targetItem, start: p, orig: copy(targetItem)};
+                    layer.setPointerCapture(e.pointerId);
+                    return;
+                }
+                if (targetItem && targetItem.type === 'image' && tool !== 'erase') {
+                    // Pictures can always be dragged, whatever tool is active.
+                    e.preventDefault();
+                    selectItem(targetItem);
+                    state = {mode: 'move', item: targetItem, start: p, orig: copy(targetItem)};
+                    layer.setPointerCapture(e.pointerId);
+                    return;
+                }
+                selectItem(null);
+
                 if (tool === 'math' || tool === 'link') {
                     e.preventDefault();
                     placeItem(tool, num, p);
@@ -983,6 +1023,19 @@ var MyLKPD = (function() {
                     draw(state.item);
                     return;
                 }
+                if (state.mode === 'resize') {
+                    var o = state.orig;
+                    var w = Math.max(4, Math.min(100 - o.x, o.w + (p.x - state.start.x)));
+                    var h = o.h * w / o.w;
+                    if (o.y + h > 100) {
+                        h = 100 - o.y;
+                        w = o.w * h / o.h;
+                    }
+                    state.item.w = clamp(w);
+                    state.item.h = clamp(h);
+                    draw(state.item);
+                    return;
+                }
                 var it = state.item;
                 var s = state.start;
                 if (it.type === 'ellipse' || it.type === 'highlight') {
@@ -1035,7 +1088,7 @@ var MyLKPD = (function() {
                     draw(it);
                     recordUndo([{id: it.id, before: null}]);
                     changed();
-                } else if (st.mode === 'move' && canon(st.item) !== canon(st.orig)) {
+                } else if ((st.mode === 'move' || st.mode === 'resize') && canon(st.item) !== canon(st.orig)) {
                     claim(st.item);
                     recordUndo([{id: st.item.id, before: st.orig}]);
                     changed();
@@ -1250,12 +1303,12 @@ var MyLKPD = (function() {
             '٠ ١ ٢ ٣ ٤ ٥ ٦ ٧ ٨ ٩ ، ؛ ؟'
         ];
 
-        function flashHint(text) {
+        function flashHint(text, info) {
             if (!hintEl) {
                 return;
             }
             hintEl.textContent = text;
-            hintEl.classList.add('text-danger');
+            hintEl.classList.toggle('text-danger', !info);
             setTimeout(function() {
                 hintEl.classList.remove('text-danger');
                 hintEl.textContent = (tool === 'math' || tool === 'link') ? cfg.strings.clicktoplace : hintText;
@@ -1587,6 +1640,10 @@ var MyLKPD = (function() {
         }
 
         function onInsert(kind, button) {
+            if (kind === 'image') {
+                chooseImage();
+                return;
+            }
             if (kind === 'symbol' || kind === 'arabic') {
                 togglePanel(kind, button);
                 return;
@@ -1717,6 +1774,155 @@ var MyLKPD = (function() {
                 });
             });
             Array.prototype.forEach.call(document.querySelectorAll('[data-mylkpd-format]'), keepFocus);
+        }
+
+        // ------------------------------------------------ Pictures.
+
+        function imageUrl(file) {
+            return imageBase + '/' + submissionId + '/' + encodeURIComponent(file);
+        }
+
+        function selectItem(item) {
+            container.querySelectorAll('.mylkpd-selected').forEach(function(el) {
+                el.classList.remove('mylkpd-selected');
+            });
+            var el = item ? elems.get(item) : null;
+            if (el) {
+                el.classList.add('mylkpd-selected');
+            }
+        }
+
+        /**
+         * Shrinks a photo in the browser (long side at most 1600 px) so uploads stay small on phones.
+         *
+         * @param {File} file
+         * @return {Promise} resolves with {blob, name, width, height}
+         */
+        function shrinkImage(file) {
+            return new Promise(function(resolve, reject) {
+                if (!/^image\//.test(file.type)) {
+                    reject(new Error(cfg.strings.imageerror));
+                    return;
+                }
+                var url = URL.createObjectURL(file);
+                var img = new Image();
+                img.onload = function() {
+                    var scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+                    var w = Math.max(1, Math.round(img.naturalWidth * scale));
+                    var h = Math.max(1, Math.round(img.naturalHeight * scale));
+                    var canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    var ctx = canvas.getContext('2d');
+                    var png = file.type === 'image/png' || file.type === 'image/gif';
+                    if (!png) {
+                        ctx.fillStyle = '#fff';
+                        ctx.fillRect(0, 0, w, h);
+                    }
+                    ctx.drawImage(img, 0, 0, w, h);
+                    URL.revokeObjectURL(url);
+                    canvas.toBlob(function(blob) {
+                        if (!blob) {
+                            reject(new Error(cfg.strings.imageerror));
+                            return;
+                        }
+                        resolve({blob: blob, name: png ? 'gambar.png' : 'gambar.jpg', width: w, height: h});
+                    }, png ? 'image/png' : 'image/jpeg', 0.85);
+                };
+                img.onerror = function() {
+                    URL.revokeObjectURL(url);
+                    reject(new Error(cfg.strings.imageerror));
+                };
+                img.src = url;
+            });
+        }
+
+        function uploadImage(prepared) {
+            var form = new FormData();
+            form.append('sesskey', cfg.sesskey);
+            form.append('cmid', cfg.cmid);
+            form.append('image', prepared.blob, prepared.name);
+            return fetch(cfg.uploadUrl, {method: 'POST', credentials: 'same-origin', body: form}).then(function(r) {
+                return r.json();
+            }).then(function(res) {
+                if (!res || !res.file) {
+                    throw new Error((res && (res.error || res.message)) || cfg.strings.imageerror);
+                }
+                return res;
+            });
+        }
+
+        /**
+         * The page the student is looking at, and where its visible middle is (in page percent).
+         *
+         * @return {Object|null}
+         */
+        function visiblePage() {
+            var best = null;
+            var mid = window.innerHeight / 2;
+            Object.keys(pages).forEach(function(num) {
+                var r = pages[num].layer.getBoundingClientRect();
+                var visible = Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0);
+                if (visible > 0 && (!best || visible > best.visible)) {
+                    var cy = Math.min(Math.max(mid, r.top), r.bottom);
+                    best = {num: parseInt(num, 10), rect: r, visible: visible, cy: (cy - r.top) / r.height * 100};
+                }
+            });
+            return best;
+        }
+
+        function placeImage(res) {
+            var target = visiblePage();
+            if (!target) {
+                return;
+            }
+            var r = target.rect;
+            // About 40% of the page width, never larger than the picture itself.
+            var wpx = Math.min(r.width * 0.4, res.width);
+            var hpx = wpx * res.height / res.width;
+            if (hpx > r.height * 0.6) {
+                hpx = r.height * 0.6;
+                wpx = hpx * res.width / res.height;
+            }
+            var w = clamp(wpx / r.width * 100);
+            var h = clamp(hpx / r.height * 100);
+            var it = {id: newId(), page: target.num, type: 'image', file: res.file,
+                x: clamp((100 - w) / 2), y: clamp(Math.min(100 - h, Math.max(0, target.cy - h / 2))),
+                w: w, h: h, color: color, by: cfg.userid};
+            recordUndo([{id: it.id, before: null}]);
+            items.push(it);
+            createEl(it);
+            selectItem(it);
+            changed();
+            flashHint(cfg.strings.imagehint, true);
+        }
+
+        var fileInput = null;
+
+        function chooseImage() {
+            if (!fileInput) {
+                fileInput = document.createElement('input');
+                fileInput.type = 'file';
+                fileInput.accept = 'image/*';
+                fileInput.hidden = true;
+                document.body.appendChild(fileInput);
+                fileInput.addEventListener('change', function() {
+                    var file = fileInput.files && fileInput.files[0];
+                    fileInput.value = '';
+                    if (!file) {
+                        return;
+                    }
+                    flashHint(cfg.strings.imageuploading, true);
+                    shrinkImage(file).then(uploadImage).then(function(res) {
+                        submissionId = res.itemid;
+                        placeImage(res);
+                    }).catch(function(err) {
+                        flashHint(cfg.strings.imageerror + (err && err.message && err.message !== cfg.strings.imageerror ?
+                            ': ' + err.message : ''));
+                    });
+                });
+            }
+            fileInput.click();
         }
 
         // ------------------------------------------------ Toolbar and buttons.

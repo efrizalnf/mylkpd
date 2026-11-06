@@ -806,3 +806,74 @@
         font-size: 1.1rem;
     }
 }
+
+/* Pictures added by students */
+.path-mod-mylkpd .mylkpd-imageitem {
+    position: absolute;
+    box-sizing: border-box;
+    cursor: move;
+    touch-action: none;
+}
+
+.path-mod-mylkpd .mylkpd-imageitem img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: none;
+}
+
+.path-mod-mylkpd .mylkpd-mode-view .mylkpd-imageitem {
+    cursor: default;
+}
+
+.path-mod-mylkpd .mylkpd-mode-erase .mylkpd-imageitem {
+    cursor: cell;
+}
+
+.path-mod-mylkpd .mylkpd-imageitem:hover,
+.path-mod-mylkpd .mylkpd-imageitem.mylkpd-selected {
+    outline: 2px dashed #0f6cbf;
+    outline-offset: 1px;
+}
+
+.path-mod-mylkpd .mylkpd-mode-view .mylkpd-imageitem:hover {
+    outline: 0;
+}
+
+/* Corner handle: drag to resize (keeps proportions). */
+.path-mod-mylkpd .mylkpd-resize {
+    position: absolute;
+    right: -8px;
+    bottom: -8px;
+    display: none;
+    width: 16px;
+    height: 16px;
+    background: #fff;
+    border: 2px solid #0f6cbf;
+    border-radius: 3px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+    cursor: nwse-resize;
+}
+
+.path-mod-mylkpd .mylkpd-imageitem:hover .mylkpd-resize,
+.path-mod-mylkpd .mylkpd-imageitem.mylkpd-selected .mylkpd-resize {
+    display: block;
+}
+
+.path-mod-mylkpd .mylkpd-mode-erase .mylkpd-resize {
+    display: none !important;
+}
+
+@media (pointer: coarse) {
+    /* Bigger handle on touch screens, always visible on the selected picture. */
+    .path-mod-mylkpd .mylkpd-resize {
+        right: -13px;
+        bottom: -13px;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+    }
+}

@@ -1,6 +1,6 @@
 # MyLKPD (mod_mylkpd) — LKPD Interaktif untuk Moodle
 
-Versi 1.0.1 (beta) · Moodle 4.1+
+Versi 1.1.0 (beta) · Moodle 4.1+
 
 Plugin aktivitas Moodle (4.1+). Guru cukup mengunggah LKPD (PDF atau Word), siswa mengerjakan
 langsung di atas halaman LKPD, lalu guru menilai dari Moodle. Nilai otomatis masuk Gradebook.
@@ -25,6 +25,18 @@ supaya posisi jawaban siswa tidak bergeser. Mode direset hanya jika guru menggan
 - **Edit teks** (khusus .docx): siswa mengetik langsung di paragraf dan sel tabel LKPD.
   Tombol Enter membuat baris baru di paragraf yang sama; tempel (paste) selalu sebagai teks biasa.
   Hanya paragraf yang diubah yang disimpan (dibersihkan dengan HTMLPurifier Moodle).
+
+## Gambar dari siswa
+Tombol **🖼 Gambar** (baris Sisipkan) untuk menambahkan foto/gambar ke LKPD, misalnya foto hasil praktikum.
+- Gambar diperkecil di browser (sisi terpanjang maks. 1600 px) sebelum diunggah, lalu diletakkan
+  di tengah halaman yang sedang dilihat.
+- **Seret gambar** untuk memindahkan, **seret kotak di sudut kanan bawah** untuk mengubah ukuran
+  (proporsi tetap). Bisa dihapus dengan Penghapus dan dibatalkan dengan Urungkan.
+- Disimpan di file storage Moodle (area `answerimage`, per jawaban), bukan di database.
+  Hanya pemilik jawaban, anggota kelompoknya, dan guru yang bisa membuka gambarnya.
+- Server memeriksa isi file (JPG/PNG/GIF/WebP), ukuran maks. 5 MB, maks. 30 gambar per LKPD.
+  Gambar yang sudah tidak dipakai dihapus saat LKPD dikumpulkan.
+- Ikut tersinkron pada kerja kelompok dan tampil di halaman penilaian guru.
 
 ## Penilaian dengan rubrik
 MyLKPD mendukung *Advanced grading* Moodle (rubrik dan panduan penilaian), sama seperti Assignment.
@@ -76,7 +88,7 @@ Posisi gambar disimpan dalam persen halaman, jadi tetap pas di HP maupun laptop.
 
 ## Struktur
 - version.php, lib.php, locallib.php, mod_form.php
-- view.php (siswa), ajax.php (autosave/sinkron), submissions.php (daftar), grade.php (penilaian), index.php
+- view.php (siswa), ajax.php (autosave/sinkron), upload.php (unggah gambar), submissions.php (daftar), grade.php (penilaian), index.php
 - db/install.xml, db/upgrade.php, db/access.php
 - classes/event, classes/form, classes/privacy
 - js/worksheet.js (editor), styles.css
