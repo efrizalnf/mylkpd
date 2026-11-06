@@ -234,10 +234,11 @@ function mylkpd_update_grades($mylkpd, $userid = 0, $nullifnone = true) {
  * @return bool false if the file was not found
  */
 function mylkpd_pluginfile($course, $cm, $context, $filearea, $args, $forcedownload, array $options = []) {
+    global $DB, $USER;
     if ($context->contextlevel != CONTEXT_MODULE) {
         return false;
     }
-    if (!in_array($filearea, ['worksheet', 'pdf'])) {
+    if (!in_array($filearea, ['worksheet', 'pdf', 'answerimage'])) {
         return false;
     }
     require_login($course, true, $cm);
@@ -247,9 +248,23 @@ function mylkpd_pluginfile($course, $cm, $context, $filearea, $args, $forcedownl
     $filename = array_pop($args);
     $filepath = $args ? '/' . implode('/', $args) . '/' : '/';
 
+    if ($filearea === 'answerimage') {
+        // Images in answers: the student, their group mates, and teachers who grade.
+        $sub = $DB->get_record('mylkpd_submissions', ['id' => $itemid, 'mylkpdid' => $cm->instance]);
+        if (!$sub) {
+            return false;
+        }
+        $allowed = has_capability('mod/mylkpd:grade', $context)
+            || (!$sub->groupid && $sub->userid == $USER->id)
+            || ($sub->groupid && groups_is_member($sub->groupid, $USER->id));
+        if (!$allowed) {
+            return false;
+        }
+    }
+
     $file = get_file_storage()->get_file($context->id, 'mod_mylkpd', $filearea, $itemid, $filepath, $filename);
     if (!$file || $file->is_directory()) {
         return false;
     }
-    send_stored_file($file, 0, 0, $forcedownload, $options);
+    send_stored_file($file, DAYSECS, 0, $forcedownload, $options);
 }

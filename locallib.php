@@ -174,6 +174,15 @@ function mylkpd_clean_item($a): ?array {
             }
             $item += ['x' => $pct($a['x'] ?? 0), 'y' => $pct($a['y'] ?? 0), 'tex' => $tex];
             break;
+        case 'image':
+            // A picture the student uploaded; the file lives in the submission's answerimage area.
+            $file = clean_param((string) ($a['file'] ?? ''), PARAM_FILE);
+            if (!preg_match('/^img_[a-z0-9_]+\.(jpg|png|gif|webp)$/', $file)) {
+                return null;
+            }
+            $item += ['x' => $pct($a['x'] ?? 0), 'y' => $pct($a['y'] ?? 0),
+                'w' => max(2, $pct($a['w'] ?? 30)), 'h' => max(2, $pct($a['h'] ?? 20)), 'file' => $file];
+            break;
         case 'link':
             $url = clean_param(trim((string) ($a['url'] ?? '')), PARAM_URL);
             if (!preg_match('~^https?://~i', $url)) {
@@ -364,6 +373,10 @@ function mylkpd_sync(stdClass $mylkpd, $cm, int $userid, int $sincerev, array $o
 
                 if ($kind === 'item' && $action === 'put') {
                     $item = mylkpd_clean_item($op['data'] ?? null);
+                    if ($item && $item['type'] === 'image' && !get_file_storage()->file_exists(
+                            context_module::instance($cm->id)->id, 'mod_mylkpd', 'answerimage', $sub->id, '/', $item['file'])) {
+                        continue;
+                    }
                     $isnew = !isset($data['items'][$id]) || !empty($data['items'][$id]['deleted']);
                     if (!$item || ($isnew && $live >= 2000)) {
                         continue;
@@ -431,6 +444,79 @@ function mylkpd_sync(stdClass $mylkpd, $cm, int $userid, int $sincerev, array $o
         'blocks' => (object) $blocks,
         'presence' => $presence,
     ];
+}
+
+/** Largest image a student can upload (bytes, after resizing in the browser). */
+define('MYLKPD_IMAGE_MAXBYTES', 5 * 1024 * 1024);
+/** Most images one submission can hold. */
+define('MYLKPD_IMAGE_MAXCOUNT', 30);
+
+/**
+ * Stores an uploaded answer image in the user's (or group's) submission.
+ *
+ * @param stdClass $mylkpd
+ * @param cm_info|stdClass $cm
+ * @param context_module $context
+ * @param int $userid
+ * @param array|null $upload entry from $_FILES
+ * @return array ['file', 'itemid', 'width', 'height'] or ['error' => message]
+ */
+function mylkpd_store_answer_image(stdClass $mylkpd, $cm, context_module $context, int $userid, ?array $upload): array {
+    if (!$upload || ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file($upload['tmp_name'])) {
+        return ['error' => get_string('imageerror', 'mod_mylkpd')];
+    }
+    if ($upload['size'] > MYLKPD_IMAGE_MAXBYTES) {
+        return ['error' => get_string('imagetoolarge', 'mod_mylkpd', display_size(MYLKPD_IMAGE_MAXBYTES))];
+    }
+    // Check the content itself, not the name or the browser's claim.
+    $info = @getimagesize($upload['tmp_name']);
+    $types = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_GIF => 'gif', IMAGETYPE_WEBP => 'webp'];
+    if (!$info || !isset($types[$info[2]])) {
+        return ['error' => get_string('imagetypeinvalid', 'mod_mylkpd')];
+    }
+    if (!empty($mylkpd->teamsubmission) && !mylkpd_get_user_groupid($cm, $userid)) {
+        return ['error' => get_string('nogroup', 'mod_mylkpd')];
+    }
+    $sub = mylkpd_find_submission($mylkpd, $cm, $userid, true);
+    if ($sub->status == MYLKPD_STATUS_SUBMITTED) {
+        return ['error' => get_string('alreadysubmitted', 'mod_mylkpd')];
+    }
+    $fs = get_file_storage();
+    if (count($fs->get_area_files($context->id, 'mod_mylkpd', 'answerimage', $sub->id, 'id', false)) >= MYLKPD_IMAGE_MAXCOUNT) {
+        return ['error' => get_string('imagelimit', 'mod_mylkpd', MYLKPD_IMAGE_MAXCOUNT)];
+    }
+    $name = 'img_' . time() . '_' . strtolower(random_string(8)) . '.' . $types[$info[2]];
+    $fs->create_file_from_pathname([
+        'contextid' => $context->id,
+        'component' => 'mod_mylkpd',
+        'filearea' => 'answerimage',
+        'itemid' => $sub->id,
+        'filepath' => '/',
+        'filename' => $name,
+        'userid' => $userid,
+    ], $upload['tmp_name']);
+    return ['file' => $name, 'itemid' => (int) $sub->id, 'width' => (int) $info[0], 'height' => (int) $info[1]];
+}
+
+/**
+ * Removes uploaded images that no answer uses any more (called when a worksheet is submitted).
+ *
+ * @param context_module $context
+ * @param stdClass $submission
+ */
+function mylkpd_cleanup_images(context_module $context, stdClass $submission): void {
+    $used = [];
+    foreach (mylkpd_decode_data($submission->answers)['items'] as $item) {
+        if (empty($item['deleted']) && ($item['type'] ?? '') === 'image') {
+            $used[$item['file']] = true;
+        }
+    }
+    $fs = get_file_storage();
+    foreach ($fs->get_area_files($context->id, 'mod_mylkpd', 'answerimage', $submission->id, 'id', false) as $file) {
+        if (empty($used[$file->get_filename()])) {
+            $file->delete();
+        }
+    }
 }
 
 /**
@@ -670,7 +756,8 @@ function mylkpd_render_toolbar(bool $cantype, string $defaulttool, string $teamb
     }
     $row2 .= $group($style, $s('color'), 'mylkpd-style');
     $buttons = '';
-    foreach (['math' => '&#8721;', 'symbol' => '&#937;', 'arabic' => '&#1593;', 'link' => '&#128279;'] as $what => $icon) {
+    foreach (['image' => '&#128444;', 'math' => '&#8721;', 'symbol' => '&#937;', 'arabic' => '&#1593;',
+            'link' => '&#128279;'] as $what => $icon) {
         $buttons .= mylkpd_toolbar_button('insert', $what, $icon, $s('insert' . $what));
     }
     $row2 .= $group($buttons, $s('insert'), 'mylkpd-inserts');
@@ -750,6 +837,9 @@ function mylkpd_render_worksheet(stdClass $mylkpd, $cm, context_module $context,
         'canType' => $cantype,
         'defaultTool' => $defaulttool,
         'syncUrl' => (new moodle_url('/mod/mylkpd/ajax.php'))->out(false),
+        'uploadUrl' => (new moodle_url('/mod/mylkpd/upload.php'))->out(false),
+        'imageBase' => moodle_url::make_pluginfile_url($context->id, 'mod_mylkpd', 'answerimage', 0, '/', 'x')->out(false),
+        'submissionId' => (int) ($submission->id ?? 0),
         'cmid' => (int) $cm->id,
         'sesskey' => sesskey(),
         'userid' => (int) $USER->id,
@@ -791,6 +881,11 @@ function mylkpd_render_worksheet(stdClass $mylkpd, $cm, context_module $context,
             'backspace' => get_string('arabicbackspace', 'mod_mylkpd'),
             'clicktoplace' => get_string('clicktoplace', 'mod_mylkpd'),
             'needfocus' => get_string('needfocus', 'mod_mylkpd'),
+            'image' => get_string('imagealt', 'mod_mylkpd'),
+            'imageuploading' => get_string('imageuploading', 'mod_mylkpd'),
+            'imageerror' => get_string('imageerror', 'mod_mylkpd'),
+            'imagehint' => get_string('imagehint', 'mod_mylkpd'),
+            'resize' => get_string('imageresize', 'mod_mylkpd'),
         ],
     ];
 
